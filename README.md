@@ -68,9 +68,9 @@ mcp.Start(ctx, server, assistant)
 
 ## The part that is not a port
 
-The shape above is `laravel/mcp`'s, deliberately: somebody arriving from there
-should recognise it. One thing is different, and it is the reason this package
-exists rather than a generic Go MCP library.
+The shape above is the one this ecosystem's users already know, deliberately.
+One thing is different, and it is the reason this package exists rather than a
+generic Go MCP library.
 
 **A tool reaches data, and every path to data in Arandu carries a
 `security.Grant`.** The `Subject` is on the `Request`, and a tool has no other
