@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/arandu-io/framework/httpx"
+	fhttp "github.com/arandu-io/framework/http"
 	"github.com/arandu-io/framework/observability"
 	"github.com/arandu-io/framework/security"
 )
@@ -36,8 +36,8 @@ import (
 //
 // The subject comes from the session. A client with none is a guest, and what a
 // guest may do is the policy's answer -- the same answer a browser would get.
-func Web(s *Server, sessions *security.SessionStore, tenant string) func(*httpx.Context) error {
-	return func(ctx *httpx.Context) error {
+func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.Context) error {
+	return func(ctx *fhttp.Context) error {
 		body, err := io.ReadAll(io.LimitReader(ctx.Request.Body, 1<<20))
 		if err != nil {
 			return ctx.Status(http.StatusBadRequest)
