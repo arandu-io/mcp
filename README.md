@@ -13,6 +13,13 @@
 <a href="LICENSE.md"><img src="https://img.shields.io/github/license/arandu-io/mcp" alt="License"></a>
 </p>
 
+## What this is
+
+The Model Context Protocol is how an assistant reaches a program: the program
+declares tools it can call, and the client picks. This package is the Arandu
+side of that, speaking protocol revision `2024-11-05`, over HTTP or over
+stdio.
+
 ## Install
 
 ```sh
@@ -120,6 +127,22 @@ declaration, so it belongs at boot rather than at the first call.
 - **No sampling and no roots.** They are in the protocol and nothing in an
   Arandu application needs them yet; a capability declared and not served is one
   a client reports as the server being broken.
+
+## Learning Arandu
+
+The API reference is generated from the doc comments and lives on
+[pkg.go.dev](https://pkg.go.dev/github.com/arandu-io/framework). Every exported
+symbol carries one, and that is deliberate: it is the documentation that cannot
+drift from the code, because it sits in the same file.
+
+The CLI documents itself. `aru help` lists every command, and each one explains
+what it writes and what to do with it. `aru doctor` explains what it found and
+what breaks, not which rule was violated.
+
+A guide and a website do not exist yet, and that is a decision rather than a
+gap: a guide written against an API that still moves is work done twice, and the
+second time is worse — there is wrong documentation published. The site is the
+next phase, and it will be an Arandu application.
 
 ## Contributing
 
