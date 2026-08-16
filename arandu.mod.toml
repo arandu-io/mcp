@@ -1,0 +1,12 @@
+# What this server declares about itself.
+
+name = "arandu-io/mcp"
+framework = ">= 0.18"
+profiles = ["conventional", "performance"]
+
+[permissions]
+# Web answers an HTTP request and Local answers a pipe; neither dials out.
+network = false
+filesystem = false
+exec = false
+migrations = false
