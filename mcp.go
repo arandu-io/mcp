@@ -2,10 +2,9 @@
 //
 // The Model Context Protocol is how an assistant reaches a program: the program
 // declares tools it can call, resources it can read and prompts it can use, and
-// the client picks. This package is the Arandu side of that, and the shape is
-// laravel/mcp's, because somebody arriving from there should recognise it.
+// the client picks. This package is the Arandu side of that.
 //
-// # The one thing that is not a port
+// # Every tool carries a Grant
 //
 // A tool reaches data, and every path to data in this framework carries a
 // security.Grant. So does this one.
