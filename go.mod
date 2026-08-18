@@ -2,7 +2,7 @@ module github.com/arandu-io/mcp
 
 go 1.26
 
-require github.com/arandu-io/framework v0.28.0
+require github.com/arandu-io/framework v0.29.0
 
 require (
 	github.com/arandu-io/hesape v0.6.0 // indirect
