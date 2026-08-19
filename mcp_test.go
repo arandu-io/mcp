@@ -213,6 +213,102 @@ func TestInitializeDeclaresOnlyWhatTheServerHas(t *testing.T) {
 	}
 }
 
+// TestAMemberIsTheOneItIsNamed.
+//
+// encoding/json fills a struct field from a member whose name differs only in
+// case, and the protocol's members do not differ only in case. A message that
+// reads "method":"ping" and runs a tool is a message that whatever stands in
+// front of this server records as a ping.
+func TestAMemberIsTheOneItIsNamed(t *testing.T) {
+	tool := &posts{}
+	s := server(tool)
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	ran := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"ping","METHOD":"tools/call",`+
+			`"params":{"name":"list_posts","arguments":{}}}`))
+	if strings.Contains(string(ran), "one post") {
+		t.Errorf("a message that names ping called a tool: %s", ran)
+	}
+	if tool.asked.ID != "" {
+		t.Error("a message that names ping reached a tool")
+	}
+
+	if got := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","method":"ping","ID":7}`)); got != nil {
+		t.Errorf("a notification was answered because a member differed in case: %s", got)
+	}
+
+	spelt := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpC":"2.0","id":1,"method":"ping"}`))
+	if !strings.Contains(string(spelt), "-32600") {
+		t.Errorf("a message that names no protocol was accepted: %s", spelt)
+	}
+}
+
+// TestAnAnswerAlwaysCarriesAnID.
+//
+// A client keys the calls it is waiting on by id. An answer without one is an
+// answer it has nowhere to put, so the protocol asks for the member to be there
+// and null when the request's could not be read.
+func TestAnAnswerAlwaysCarriesAnID(t *testing.T) {
+	s := server(&posts{})
+
+	for _, body := range []string{
+		``,
+		`{`,
+		`[1,2,3]`,
+		`{}`,
+		`{"jsonrpc":"1.0","method":"ping"}`,
+		`{"jsonrpc":"2.0","id":4,"method":"nope"}`,
+	} {
+		answer := s.Handle(context.Background(), security.Subject{ID: "u1"}, []byte(body))
+		if answer == nil {
+			t.Errorf("%q got no answer at all", body)
+			continue
+		}
+		var out map[string]json.RawMessage
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("%q was answered with something that is not JSON: %v", body, err)
+			continue
+		}
+		if _, ok := out["id"]; !ok {
+			t.Errorf("%q was answered without an id: %s", body, answer)
+		}
+	}
+}
+
+// TestAMessageWithNoMethodSaysSo.
+//
+// The usual message with no method is an answer that arrived where a call was
+// expected, and reporting that the method named by the empty string is not
+// implemented sends the reader looking for a method.
+func TestAMessageWithNoMethodSaysSo(t *testing.T) {
+	answer := server(&posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
+		[]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+
+	if !strings.Contains(string(answer), "no method") {
+		t.Errorf("a message with no method was answered with %s", answer)
+	}
+}
+
+// TestOnlySomethingThatIsNotJSONIsCalledThat.
+//
+// "the message is not JSON" about a message that is JSON is a person reading
+// their encoder instead of their fields.
+func TestOnlySomethingThatIsNotJSONIsCalledThat(t *testing.T) {
+	s := server(&posts{})
+
+	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":5}`)); strings.Contains(string(got), "not JSON") {
+		t.Errorf("a message that is JSON was reported as not being JSON: %s", got)
+	}
+	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
+		[]byte(`{oops`)); !strings.Contains(string(got), "not JSON") {
+		t.Errorf("a message that is not JSON was reported as something else: %s", got)
+	}
+}
+
 // undescribed is the mistake TestAServerWithoutDescriptions is about.
 type undescribed struct{}
 

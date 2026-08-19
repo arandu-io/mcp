@@ -150,6 +150,26 @@ func TestAMessageWithinTheLimitStillArrives(t *testing.T) {
 	}
 }
 
+// TestALargeMessageOverAPipeStillArrives, so the bound on a line is not a way to
+// refuse every message that is not small.
+func TestALargeMessageOverAPipeStillArrives(t *testing.T) {
+	in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping","params":{"note":"` +
+		strings.Repeat("a", 512<<10) + `"}}` + "\n")
+
+	var out bytes.Buffer
+	if err := mcp.Local(context.Background(), fuzzServer(), security.Subject{ID: "u1"}, in, &out); err != nil {
+		t.Fatalf("reading the stream failed: %v", err)
+	}
+
+	var answer answerShape
+	if err := json.Unmarshal(bytes.TrimSuffix(out.Bytes(), []byte("\n")), &answer); err != nil {
+		t.Fatalf("the answer is not a response: %v, %s", err, out.Bytes())
+	}
+	if answer.Error != nil {
+		t.Fatalf("a message inside the limit was refused: %s", out.Bytes())
+	}
+}
+
 // post sends one message to the web transport, through the router that mounts
 // it, and returns what came back.
 func post(t *testing.T, body string) *httptest.ResponseRecorder {

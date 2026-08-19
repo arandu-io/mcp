@@ -13,16 +13,22 @@ import (
 // opinion about it. stdio frames it with newlines and HTTP frames it with a
 // request body, and everything between the frame and the Server is here.
 
+// rpcRequest is one message, already taken apart. It carries no field tags
+// because nothing decodes into it: parse reads the members by name.
 type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
+	JSONRPC string
+	ID      json.RawMessage
+	Method  string
+	Params  json.RawMessage
 }
 
+// The id is not omitted when it is empty, unlike the request's. A client keys
+// the calls it is waiting on by id, and an answer without one is an answer it
+// has nowhere to put: the protocol asks for the member to be there and null when
+// the request's could not be read, and a nil RawMessage encodes as exactly that.
 type rpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
+	ID      json.RawMessage `json:"id"`
 	Result  any             `json:"result,omitempty"`
 	Error   *rpcError       `json:"error,omitempty"`
 }
@@ -47,18 +53,83 @@ type content struct {
 	Text string `json:"text"`
 }
 
+// parse takes a message apart, and reports whether it was a JSON object at all.
+//
+// The members are read by name from a map rather than decoded into the struct,
+// and the difference is case: encoding/json fills a field from a member whose
+// name differs only in case, and the protocol's names do not differ only in
+// case. A server that reads "METHOD" as "method" answers messages that nothing
+// else along the path recognises as calls -- which is how the thing in front of
+// it records one call and the thing behind it runs another. Reading by name also
+// tells a member that is absent from one that is null, and that difference is
+// the whole of what makes a message a notification.
+func parse(body []byte) (rpcRequest, bool) {
+	fields := members(body)
+	if fields == nil {
+		return rpcRequest{}, false
+	}
+
+	return rpcRequest{
+		JSONRPC: text(fields, "jsonrpc"),
+		ID:      fields["id"],
+		Method:  text(fields, "method"),
+		Params:  fields["params"],
+	}, true
+}
+
+// members reads a JSON object, and answers nil for anything that is not one.
+func members(raw json.RawMessage) map[string]json.RawMessage {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+	return fields
+}
+
+// text reads one member as a string. A member that is absent, null or of any
+// other type reads as empty, which every caller here treats as absent.
+func text(fields map[string]json.RawMessage, name string) string {
+	var s string
+	_ = json.Unmarshal(fields[name], &s)
+	return s
+}
+
+// failure builds an answer that carries no result, for the given id or for none.
+func failure(id json.RawMessage, code int, message string) []byte {
+	return encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{code, message}})
+}
+
+// tooLong is the answer to a message longer than a transport reads.
+//
+// It names no id because the id is somewhere inside the part that was refused,
+// and reading far enough to find it is the thing being refused.
+func tooLong() []byte {
+	return failure(nil, codeInvalidRequest, "the message is longer than this server reads")
+}
+
 // Handle answers one JSON-RPC message.
 //
 // It returns nil for a notification -- a message with no id, which the protocol
 // says gets no answer. Sending one anyway is what makes a client hang up.
 func (s *Server) Handle(ctx context.Context, subject security.Subject, body []byte) []byte {
-	var req rpcRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{codeParse, "the message is not JSON"}})
+	req, ok := parse(body)
+	if !ok {
+		// Bytes that are not JSON and JSON that is not an object are different
+		// mistakes, and which one it was decides where the person reading the
+		// answer looks: at the encoder, or at what it put in the message.
+		if json.Valid(body) {
+			return failure(nil, codeInvalidRequest, "the message is JSON but not a request")
+		}
+		return failure(nil, codeParse, "the message is not JSON")
 	}
 	if req.JSONRPC != "2.0" {
-		return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID,
-			Error: &rpcError{codeInvalidRequest, "this server speaks JSON-RPC 2.0"}})
+		return failure(req.ID, codeInvalidRequest, "this server speaks JSON-RPC 2.0")
+	}
+	if req.Method == "" {
+		// A message with no method is not a request at all, and the usual one is
+		// an answer that arrived where a call was expected. Saying so beats
+		// reporting that a method named by the empty string is not implemented.
+		return failure(req.ID, codeInvalidRequest, "the message names no method")
 	}
 
 	answer := func(result any) []byte {
@@ -95,13 +166,11 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		return answer(map[string]any{"tools": tools})
 
 	case "tools/call":
-		var p struct {
-			Name      string         `json:"name"`
-			Arguments map[string]any `json:"arguments"`
-		}
-		_ = json.Unmarshal(req.Params, &p)
+		p := members(req.Params)
+		var arguments map[string]any
+		_ = json.Unmarshal(p["arguments"], &arguments)
 
-		out := s.Call(ctx, subject, p.Name, p.Arguments)
+		out := s.Call(ctx, subject, text(p, "name"), arguments)
 		return answer(map[string]any{
 			"content": []content{{Type: "text", Text: out.Text}},
 			"isError": out.IsError,
@@ -118,14 +187,11 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		return answer(map[string]any{"resources": list})
 
 	case "resources/read":
-		var p struct {
-			URI string `json:"uri"`
-		}
-		_ = json.Unmarshal(req.Params, &p)
+		uri := text(members(req.Params), "uri")
 
-		out := s.Read(ctx, subject, p.URI)
+		out := s.Read(ctx, subject, uri)
 		return answer(map[string]any{
-			"contents": []map[string]any{{"uri": p.URI, "mimeType": "text/plain", "text": out.Text}},
+			"contents": []map[string]any{{"uri": uri, "mimeType": "text/plain", "text": out.Text}},
 		})
 
 	case "prompts/list":
@@ -144,17 +210,16 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		return answer(map[string]any{"prompts": list})
 
 	case "prompts/get":
-		var p struct {
-			Name      string         `json:"name"`
-			Arguments map[string]any `json:"arguments"`
-		}
-		_ = json.Unmarshal(req.Params, &p)
+		p := members(req.Params)
+		var arguments map[string]any
+		_ = json.Unmarshal(p["arguments"], &arguments)
+		name := text(p, "name")
 
 		for _, pr := range s.Prompts {
-			if pr.Name() != p.Name {
+			if pr.Name() != name {
 				continue
 			}
-			messages, err := pr.Render(ctx, Request{Arguments: p.Arguments, subject: subject})
+			messages, err := pr.Render(ctx, Request{Arguments: arguments, subject: subject})
 			if err != nil {
 				return answer(map[string]any{"messages": []any{}, "description": err.Error()})
 			}
@@ -166,14 +231,13 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 			}
 			return answer(map[string]any{"description": pr.Description(), "messages": out})
 		}
-		return answer(map[string]any{"messages": []any{}, "description": "no prompt called " + p.Name})
+		return answer(map[string]any{"messages": []any{}, "description": "no prompt called " + name})
 
 	default:
 		if len(req.ID) == 0 {
 			return nil
 		}
-		return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID,
-			Error: &rpcError{codeMethodNotFound, "this server does not implement " + req.Method}})
+		return failure(req.ID, codeMethodNotFound, "this server does not implement "+req.Method)
 	}
 }
 

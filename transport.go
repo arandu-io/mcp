@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,15 +33,31 @@ import (
 // assistant to act as an administrator has written that down somewhere a
 // reviewer reads.
 
+// MaxMessage is the largest message either transport reads, in bytes.
+//
+// A message is held whole before it can be parsed, so without a bound the
+// process holds whatever the other end sends -- and sending is the cheap half of
+// that exchange. The number is the same on both transports: a message one
+// accepts and the other refuses is a message whose fate depends on how it
+// arrived, which is the hardest kind of report to act on.
+const MaxMessage = 1 << 20
+
 // Web mounts the server on a route.
 //
 // The subject comes from the session. A client with none is a guest, and what a
 // guest may do is the policy's answer -- the same answer a browser would get.
 func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.Context) error {
 	return func(ctx *fhttp.Context) error {
-		body, err := io.ReadAll(io.LimitReader(ctx.Request.Body, 1<<20))
+		body, err := io.ReadAll(io.LimitReader(ctx.Request.Body, MaxMessage+1))
 		if err != nil {
 			return ctx.Status(http.StatusBadRequest)
+		}
+		if len(body) > MaxMessage {
+			// One byte past the limit is read so that too large can be told from
+			// exactly large enough. Parsing the prefix instead would answer
+			// "the message is not JSON" about a message that was JSON, and send
+			// whoever reads that to look at their encoder.
+			return ctx.Status(http.StatusRequestEntityTooLarge)
 		}
 
 		// From the session, never from the body. A client that could name its
@@ -65,8 +82,9 @@ func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.
 
 // Local serves the server over stdin and stdout.
 //
-// It is what an assistant on the same machine starts, and it is `aru mcp:start`.
-// One message per line, which is how the protocol frames itself on a pipe.
+// It is what a client on the same machine starts, and it is `aru mcp:start`.
+// One message per line, which is how the protocol frames itself on a pipe, and
+// no message longer than MaxMessage.
 //
 // Nothing is ever written to stdout except an answer. A log line there is a
 // parse error at the client, and it is the most common way a stdio server
@@ -85,21 +103,22 @@ func Local(ctx context.Context, s *Server, subject security.Subject, in io.Reade
 		default:
 		}
 
-		line, err := reader.ReadBytes('\n')
-		if len(line) == 0 {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			continue
-		}
+		line, oversized, err := readLine(reader, MaxMessage)
 
-		answer := s.Handle(ctx, subject, line)
-		if answer != nil {
-			if _, werr := fmt.Fprintf(out, "%s\n", answer); werr != nil {
+		switch {
+		case oversized:
+			if _, werr := fmt.Fprintf(out, "%s\n", tooLong()); werr != nil {
 				return werr
+			}
+		case len(bytes.TrimSpace(line)) == 0:
+			// A blank line carries no message, and answering one turns a byte
+			// into an answer -- which is a stream of newlines turning into as
+			// much output as the other end cares to ask for.
+		default:
+			if answer := s.Handle(ctx, subject, line); answer != nil {
+				if _, werr := fmt.Fprintf(out, "%s\n", answer); werr != nil {
+					return werr
+				}
 			}
 		}
 
@@ -109,6 +128,40 @@ func Local(ctx context.Context, s *Server, subject security.Subject, in io.Reade
 		if err != nil {
 			return err
 		}
+	}
+}
+
+// readLine reads one newline-terminated message, and reports that it refused one
+// longer than limit instead of returning it.
+//
+// bufio.Reader.ReadBytes grows a buffer until it finds the byte it was asked
+// for, which hands whoever is writing the choice of how much memory this process
+// uses: not sending a newline costs the writer nothing. This keeps a bounded
+// prefix and then discards the rest of the over-long line through the reader's
+// own buffer, so a line of any length costs the same once the limit is passed.
+// Either way the stream is left at the start of the next message, because a
+// reader that gives up mid-line reads the remains of one message as many.
+func readLine(r *bufio.Reader, limit int) ([]byte, bool, error) {
+	var line []byte
+	oversized := false
+
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if !oversized {
+			if len(line)+len(chunk) > limit {
+				// What was read so far is dropped rather than kept: a message
+				// that will not be parsed is worth no memory at all.
+				line, oversized = nil, true
+			} else {
+				// ReadSlice returns the reader's own buffer, which the next read
+				// overwrites, so this copy is what makes the message outlive it.
+				line = append(line, chunk...)
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return line, oversized, err
 	}
 }
 
