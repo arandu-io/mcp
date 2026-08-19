@@ -94,6 +94,29 @@ func text(fields map[string]json.RawMessage, name string) string {
 	return s
 }
 
+// isID reports whether a member can serve as a request id, which the protocol
+// allows to be a string, a number or null and nothing else.
+//
+// An absent member is allowed and is not a bad id: a message without one is a
+// notification, which is a different thing from a request that named an id this
+// server cannot carry.
+//
+// The number is read as a json.Number rather than into a float, because one
+// larger than a float holds is still a number. Reading it into a float fails,
+// and refusing it would answer a well-formed message with a complaint about the
+// one member that was fine.
+func isID(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return true
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return true
+	}
+	var n json.Number
+	return json.Unmarshal(raw, &n) == nil
+}
+
 // failure builds an answer that carries no result, for the given id or for none.
 func failure(id json.RawMessage, code int, message string) []byte {
 	return encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{code, message}})
@@ -121,6 +144,17 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 			return failure(nil, codeInvalidRequest, "the message is JSON but not a request")
 		}
 		return failure(nil, codeParse, "the message is not JSON")
+	}
+	if !isID(req.ID) {
+		// Before anything else reads it, because every answer below is built
+		// around this member and one that cannot be carried has to be refused
+		// while there is still an answer to refuse it with.
+		//
+		// The id is what a client matches an answer to a call by, so echoing a
+		// shape the protocol does not carry hands it back something its own
+		// matching has nowhere to key on. The answer names no id, which is what
+		// the protocol asks for when the request's could not be read.
+		return failure(nil, codeInvalidRequest, "the id must be a string, a number or null")
 	}
 	if req.JSONRPC != "2.0" {
 		return failure(req.ID, codeInvalidRequest, "this server speaks JSON-RPC 2.0")

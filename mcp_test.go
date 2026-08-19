@@ -278,6 +278,82 @@ func TestAnAnswerAlwaysCarriesAnID(t *testing.T) {
 	}
 }
 
+// TestAnIDIsAStringANumberOrNull.
+//
+// The protocol carries those three and nothing else there, and the id is the
+// member a client matches an answer to the call it is waiting on by. An id it
+// cannot key on is an answer it never delivers, and the call it belongs to waits
+// until something gives up -- so the message is refused while there is still an
+// answer to refuse it with, rather than acted on and answered unmatchably.
+func TestAnIDIsAStringANumberOrNull(t *testing.T) {
+	tool := &posts{}
+	s := server(tool)
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, id := range []string{`{"a":1}`, `{}`, `[1,2]`, `[]`, `true`, `false`} {
+		body := `{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}`
+
+		answer := s.Handle(context.Background(), who, []byte(body))
+		if answer == nil {
+			t.Errorf("an id of %s got no answer at all, and a request is not a notification", id)
+			continue
+		}
+		var out answerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("an id of %s was answered with something that is not JSON: %v", id, err)
+			continue
+		}
+		if out.Error == nil {
+			t.Errorf("an id of %s was accepted: %s", id, answer)
+			continue
+		}
+		if out.Error.Code != codeInvalidRequest {
+			t.Errorf("an id of %s was answered with %d, and the message was JSON: %s",
+				id, out.Error.Code, answer)
+		}
+		// Null rather than the id that arrived: the client is told which call
+		// failed by there being no call, because there was no id to name one.
+		if string(out.ID) != "null" {
+			t.Errorf("an id of %s came back as %s, which a client cannot key on", id, out.ID)
+		}
+	}
+
+	// A message refused for its id is not a message that ran.
+	if got := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":[1],"method":"tools/call",`+
+			`"params":{"name":"list_posts","arguments":{}}}`)); strings.Contains(string(got), "one post") {
+		t.Errorf("a message with an id nobody can match called a tool: %s", got)
+	}
+	if tool.asked.ID != "" {
+		t.Error("a message with an id nobody can match reached a tool")
+	}
+
+	// The three the protocol does carry still arrive, and come back as they were
+	// sent. The large one is why the check reads a number as a number: it does
+	// not fit a float, and a check that used one would refuse it.
+	for _, id := range []string{`1`, `-3`, `0`, `1.5`, `1e999`, `"abc"`, `""`, `null`} {
+		body := `{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}`
+
+		answer := s.Handle(context.Background(), who, []byte(body))
+		if answer == nil {
+			t.Errorf("an id of %s got no answer at all", id)
+			continue
+		}
+		var out answerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("an id of %s was answered with something that is not JSON: %v", id, err)
+			continue
+		}
+		if out.Error != nil {
+			t.Errorf("an id of %s was refused: %s", id, answer)
+			continue
+		}
+		if string(out.ID) != id {
+			t.Errorf("an id of %s came back as %s", id, out.ID)
+		}
+	}
+}
+
 // TestAMessageWithNoMethodSaysSo.
 //
 // The usual message with no method is an answer that arrived where a call was
