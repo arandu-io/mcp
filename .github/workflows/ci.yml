@@ -50,6 +50,12 @@ jobs:
       - name: test
         run: go test -race ./...
 
+      # The suite is only run by go test when its files are named for it, and a
+      # file that is not is skipped without a word. Review does not catch that
+      # twice in a row, so it is a command.
+      - name: test layout
+        run: bash tests/test-layout-guard.sh
+
       # The golden files ARE the product: they are the bytes that land in
       # somebody's project. A change to them has to show up as a diff in review
       # rather than as a surprise in a checkout, so a run that rewrites them and
