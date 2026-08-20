@@ -21,7 +21,11 @@ fi
 # A test that only uses the exported API belongs under tests/. One that reads an
 # unexported identifier cannot live there at all, so it stays beside the code it
 # reads and says so in its name.
-if git ls-files '*_test.go' | grep -v '^tests/' | grep -v '_internal_test\.go$'; then
+#
+# The pattern anchors on a path element and not on the start of the path: a
+# nested module keeps its own tests/, and `^tests/` would report every file in
+# it as misplaced.
+if git ls-files '*_test.go' | grep -vE '(^|/)tests/' | grep -v '_internal_test\.go$'; then
 	echo "[FAILED] test outside tests/ without _internal suffix"
 	fail=1
 fi
