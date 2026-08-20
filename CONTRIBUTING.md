@@ -23,34 +23,46 @@ before their first patch.
 gofmt -l $(find . -name '*.go' -not -path '*/testdata/*' -not -name '*.kyse.go')
 go vet ./...
 go test -race ./...
+bash tests/test-layout-guard.sh
 ```
 
-CI runs exactly this, plus a check that no new dependency entered the core: the
-framework depends on the standard library and `golang.org/x/crypto`, and nothing
-else. A pull request that adds a dependency there needs to argue for it first,
-in an issue.
+CI runs exactly this, plus a check that no dependency beyond the framework
+entered this module: it is imported by applications that expose themselves to an
+assistant, and a second require is a download for every one of them. A pull
+request that adds one needs to argue for it first, in an issue.
 
 ## Where a test goes
 
-Beside the code it tests, named `*_test.go`, in the same directory. There is no
-`tests/` directory, and that is not style: `go test` attributes coverage per
-directory, so a test filed elsewhere leaves the package under test reporting
-0% -- and it can only reach what the package exports.
+Under `tests/`, in the directory that says what kind of test it is:
 
-Which package the test declares is a real choice, and it answers one question:
-
-| declare | when |
+| directory | what it holds |
 |---|---|
-| `package X_test` | this is the **contract**. The test sees what a caller sees, which is the point |
-| `package X` | this is the **implementation**, and the test genuinely needs something the package does not export |
+| `tests/Unit/` | one unit on its own: no protocol, no transport |
+| `tests/Feature/` | a whole behaviour, crossing layers |
+| `tests/Fuzz/` | the fuzz targets, each with its corpus under `tests/Fuzz/testdata/fuzz/<target>/` |
+| `tests/Helpers/` | the fakes and servers the tests drive. Ordinary Go, not `*_test.go` |
 
-Prefer the first. Take the second only when you use it -- `plans/testpackages.go`
-in the arandu-io working tree checks exactly that, by intersecting the
-identifiers a test names with what its package declares unexported, and the
-checklist runs it across every repository.
+The directory names the category, so the file name does not repeat it:
+`tests/Unit/server_test.go`, never `tests/Unit/server_unit_test.go`. The
+directories are capitalized and the package clause is not.
 
-A `package main` has no external form: it cannot be imported, so its tests are
-internal and that is the end of it.
+There is one exception, and it is technical rather than a matter of taste: a test
+that reads an identifier the package does not export cannot live anywhere but
+beside the code it reads. That one is named `<file>_internal_test.go` and stays
+put. This module has none -- and a test that stays beside the code without using
+anything unexported is the case that needs an argument, not the other way round.
+`plans/testpackages.go` in the arandu-io working tree checks exactly that, by
+intersecting the identifiers a test names with what its package declares
+unexported, and the checklist runs it across every repository.
+
+Coverage is measured with `-coverpkg=./...`. Without it, running a tree of tests
+reports the coverage of the test packages themselves, which is near zero, and
+the number reads like the suite broke.
+
+`tests/test-layout-guard.sh` checks all of the above. The first thing it checks
+is the one that fails silently: `go test` runs a file only when its name ends in
+`_test.go`, so a file named `ServerTest.go` compiles into the package as
+ordinary code and every test inside it is skipped, with a green build.
 
 ## What the commit message says
 
