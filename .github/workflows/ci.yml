@@ -17,10 +17,10 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # Not go-version-file: go.mod declares the MINIMUM language version
-          # ("go 1.25"), and setup-go installs exactly that -- 1.25.0, whose
-          # standard library carries vulnerabilities fixed later. govulncheck
-          # below is right to fail on it.
+          # Not go-version-file: go.mod declares the MINIMUM language version,
+          # and setup-go installs exactly that -- the .0 of it, whose standard
+          # library carries vulnerabilities fixed later. govulncheck below is
+          # right to fail on it.
           #
           # "stable" is the version people actually run, which is what CI should
           # be testing against.
@@ -28,16 +28,17 @@ jobs:
 
       # A formatting difference is a failure, not a comment on a pull request.
       - name: gofmt
-        # `gofmt -l .` skips nothing, and what this module publishes is not all
-        # valid Go on purpose:
+        # `gofmt -l .` skips nothing, and two kinds of file are not valid Go on
+        # purpose: testdata holds fixtures meant to be refused, and gofmt is the
+        # one tool in this chain that does not read build tags, so a file the
+        # compiler excludes by one still reaches it.
         #
-        #   testdata/    the golden files, which are the published output --
-        #                including .mcp.go views, which gofmt refuses
-        #   *.mcp.go    mcp sources; the compiler excludes them by build tag,
-        #                and gofmt does not read build tags
+        # Neither kind is in this module today. The command is the same in every
+        # repository so that the first one arriving does not also need CI
+        # changed for it.
         run: |
           unformatted=$(find . -name '*.go' -not -path '*/testdata/*' \
-                          -not -name '*.mcp.go' -exec gofmt -l {} +)
+                          -not -name '*.kyse.go' -exec gofmt -l {} +)
           if [ -n "$unformatted" ]; then
             echo "not gofmt'd:"
             echo "$unformatted"
@@ -56,10 +57,6 @@ jobs:
       - name: test layout
         run: bash tests/test-layout-guard.sh
 
-      # The golden files ARE the product: they are the bytes that land in
-      # somebody's project. A change to them has to show up as a diff in review
-      # rather than as a surprise in a checkout, so a run that rewrites them and
-      # leaves the tree dirty is a failure.
       # One dependency, and it is the framework.
       #
       # A tool takes a security.Subject and answers through a policy, so the
@@ -84,8 +81,8 @@ jobs:
             exit 1
           fi
 
-      # Required by doc 24: a known vulnerability blocks the merge rather than
-      # showing up in a report nobody reads.
+      # A known vulnerability blocks the merge rather than showing up in a
+      # report nobody reads.
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest

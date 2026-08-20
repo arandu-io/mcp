@@ -40,9 +40,12 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// The codes the protocol defines. Only these three are ever sent: everything
-// else an application can go wrong with is a Response with IsError set, which
-// the model reads, rather than a transport error, which it does not.
+// The three codes this server sends about a message. Everything an application
+// can go wrong with is a Response with IsError set instead, which the model
+// reads, rather than a transport error, which it does not.
+//
+// encode carries a fourth, -32603, spelt out in bytes there because it is the
+// answer to marshalling itself having failed.
 const (
 	codeParse          = -32700
 	codeInvalidRequest = -32600
