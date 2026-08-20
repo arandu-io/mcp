@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -129,6 +130,52 @@ func isNotification(method string) bool {
 	return strings.HasPrefix(method, "notifications/")
 }
 
+// paramsShape is what a message's params member turned out to be. It decides
+// whether the parameters can be read at all, which is a question about the
+// message rather than about the method it names.
+type paramsShape int
+
+const (
+	// paramsNone is an absent member or a null one. The protocol allows the
+	// member to be left out, and null is how a client whose encoder always
+	// writes it says the same thing: this call has no parameters. Nothing is
+	// dropped by reading the two the same way.
+	paramsNone paramsShape = iota
+
+	// paramsByName is a JSON object, which is the one shape this protocol's
+	// methods take: every one of them names its parameters.
+	paramsByName
+
+	// paramsByPosition is a JSON array. JSON-RPC carries parameters that way as
+	// well, so a client sending one is not malformed by that standard -- but
+	// nothing here declares an order to read them in, so there is no way to
+	// answer the call rather than guess at it.
+	paramsByPosition
+
+	// paramsMalformed is a number, a string or a boolean: not a structure, which
+	// is what the member is required to be whenever it is there.
+	paramsMalformed
+)
+
+// shapeOfParams reads the params member without decoding it.
+//
+// The shape is what decides the answer, and decoding would have to succeed
+// before the shape could be told -- which is the order that makes a number where
+// an object belongs arrive at a method as no parameters at all.
+func shapeOfParams(raw json.RawMessage) paramsShape {
+	value := bytes.TrimSpace(raw)
+	switch {
+	case len(value) == 0 || string(value) == "null":
+		return paramsNone
+	case value[0] == '{':
+		return paramsByName
+	case value[0] == '[':
+		return paramsByPosition
+	default:
+		return paramsMalformed
+	}
+}
+
 // failure builds an answer that carries no result, for the given id or for none.
 func failure(id json.RawMessage, code int, message string) []byte {
 	return encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{code, message}})
@@ -196,6 +243,32 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 			return nil // a notification
 		}
 		return encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result})
+	}
+
+	// refuse reports a message that will not be acted on -- and reports nothing
+	// at all when it was a notification, which is answered by silence however
+	// wrong it was. The sender declared it is not listening, so the only thing
+	// left to do about its mistake is to not perform it.
+	refuse := func(code int, message string) []byte {
+		if len(req.ID) == 0 {
+			return nil
+		}
+		return failure(req.ID, code, message)
+	}
+
+	// Before the method reads them, because a method reads the members it knows
+	// by name and a params that is not an object has no members to read: it
+	// reaches every branch below as though the call had arrived with nothing in
+	// it. What the client then gets back is a complaint about the parameter that
+	// went missing rather than about the parameters it did send, which points
+	// whoever is reading at the one part of the message that was fine.
+	switch shapeOfParams(req.Params) {
+	case paramsNone, paramsByName:
+	case paramsByPosition:
+		return refuse(codeInvalidRequest,
+			"params must be an object: every method here names its parameters, and there is no order to read them in")
+	default:
+		return refuse(codeInvalidRequest, "params must be an object")
 	}
 
 	switch req.Method {

@@ -405,6 +405,148 @@ func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
 	}
 }
 
+// TestParamsThatAreNotAnObjectAreRefused.
+//
+// A member that is not an object has no members to read, so every method below
+// reads it as a call that arrived with nothing in it -- and answers by naming
+// the parameter that went missing. That sends whoever is reading to look at the
+// one part of the message that was fine, while the part that was wrong is not
+// mentioned at all.
+func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
+	tool := &posts{}
+	s := server(tool)
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, params := range []string{`7`, `"list_posts"`, `true`, `""`, `1.5`} {
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":` + params + `}`
+
+		answer := s.Handle(context.Background(), who, []byte(body))
+		if answer == nil {
+			t.Errorf("params of %s got no answer at all", params)
+			continue
+		}
+
+		var out answerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("params of %s was answered with something that is not JSON: %v", params, err)
+			continue
+		}
+		if out.Error == nil {
+			t.Errorf("params of %s was accepted: %s", params, answer)
+			continue
+		}
+		if out.Error.Code != codeInvalidRequest {
+			t.Errorf("params of %s was answered with %d: what is wrong is the shape of the message, "+
+				"not a parameter of a method that was reached", params, out.Error.Code)
+		}
+		if !strings.Contains(out.Error.Message, "params") {
+			t.Errorf("params of %s was refused without naming params: %q", params, out.Error.Message)
+		}
+		// The mistake being reported is the one that was made. Naming a tool
+		// here is the answer this test exists to keep from coming back: it
+		// reports the name that was never sent instead of the members that were.
+		if strings.Contains(out.Error.Message, "tool") {
+			t.Errorf("params of %s was reported as a problem with a tool name: %q", params, out.Error.Message)
+		}
+	}
+
+	// A message whose params are an object still reaches the tool, because the
+	// check refuses a shape and not a call.
+	ran := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call",`+
+			`"params":{"name":"list_posts","arguments":{"status":"draft"}}}`))
+	if !strings.Contains(string(ran), "one post") {
+		t.Errorf("a call with parameters this server can read was refused: %s", ran)
+	}
+	if tool.asked.ID != "u1" {
+		t.Error("a call with parameters this server can read did not reach the tool")
+	}
+}
+
+// TestPositionalParamsAreRefusedRatherThanIgnored.
+//
+// JSON-RPC carries parameters by position as well as by name, so an array is not
+// a malformed message by that standard. It is unreadable by this one: every
+// method here names its parameters and none declares an order, so there is
+// nothing to match the first element to. Reading it as no parameters at all is
+// the one answer that is worse than refusing it -- the call proceeds, missing
+// everything it was given.
+func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
+	tool := &posts{}
+	s := server(tool)
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	answer := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":["list_posts",{"status":"draft"}]}`))
+
+	var out answerShape
+	if err := json.Unmarshal(answer, &out); err != nil {
+		t.Fatalf("positional params were answered with something that is not JSON: %v, %s", err, answer)
+	}
+	if out.Error == nil {
+		t.Fatalf("positional params were accepted: %s", answer)
+	}
+	if out.Error.Code != codeInvalidRequest {
+		t.Errorf("positional params were answered with %d, and what arrived was not a request "+
+			"this protocol carries", out.Error.Code)
+	}
+	// A client that sent a well-formed JSON-RPC message is told why it is not a
+	// well-formed one here, or it sends the same thing again.
+	if !strings.Contains(out.Error.Message, "object") {
+		t.Errorf("positional params were refused without saying what is expected instead: %q", out.Error.Message)
+	}
+	if tool.asked.ID != "" {
+		t.Error("a call whose parameters could not be read reached the tool anyway")
+	}
+}
+
+// TestANotificationIsAnsweredBySilenceHoweverWrongItIs.
+//
+// A refusal is still an answer, and a notification gets none. The sender said it
+// is not listening, so the only thing left to do about its mistake is to not
+// perform it -- and a server that makes an exception for the mistakes it finds
+// interesting is a server that writes to a client counting bytes it never asked
+// for.
+func TestANotificationIsAnsweredBySilenceHoweverWrongItIs(t *testing.T) {
+	tool := &posts{}
+	s := server(tool)
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","method":"tools/call","params":7}`,
+		`{"jsonrpc":"2.0","method":"tools/call","params":["list_posts",{}]}`,
+	} {
+		if got := s.Handle(context.Background(), who, []byte(body)); got != nil {
+			t.Errorf("%s was answered with %s", body, got)
+		}
+	}
+	if tool.asked.ID != "" {
+		t.Error("a notification whose parameters could not be read reached the tool")
+	}
+}
+
+// TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame.
+//
+// The protocol allows the member to be left out, and null is how a client whose
+// encoder always writes it says exactly that. Unlike the id, where absent and
+// null are two different messages, nothing here can act differently on the two:
+// both say the call carries no parameters, and refusing one of them would refuse
+// a call that is missing nothing.
+func TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame(t *testing.T) {
+	s := server(&posts{})
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	absent := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	null := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":null}`))
+
+	if string(absent) != string(null) {
+		t.Errorf("no params answered %s and null params answered %s", absent, null)
+	}
+	if strings.Contains(string(absent), "error") {
+		t.Errorf("a call that names no parameters was refused: %s", absent)
+	}
+}
+
 // TestAMessageWithNoMethodSaysSo.
 //
 // The usual message with no method is an answer that arrived where a call was
