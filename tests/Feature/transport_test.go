@@ -1,21 +1,19 @@
-package mcp_test
+package feature
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
-	stdhttp "net/http"
-	"net/http/httptest"
+	"net/http"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
-	fhttp "github.com/arandu-io/framework/http"
 	"github.com/arandu-io/framework/security"
 
 	"github.com/arandu-io/mcp"
+	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
 
 // The limits, measured rather than read.
@@ -41,7 +39,7 @@ func TestALineIsNotReadIntoUnboundedMemory(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	if err := mcp.Local(context.Background(), fuzzServer(), security.Subject{ID: "u1"}, in, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, in, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 	runtime.ReadMemStats(&after)
@@ -62,7 +60,7 @@ func TestABlankLineIsNotAMessage(t *testing.T) {
 
 	in := strings.NewReader(strings.Repeat("\n", blanks) + strings.Repeat(" \t\r\n", blanks))
 	var out bytes.Buffer
-	if err := mcp.Local(context.Background(), fuzzServer(), security.Subject{ID: "u1"}, in, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, in, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 
@@ -84,7 +82,7 @@ func TestAnOversizedMessageIsRefusedAndTheStreamResyncs(t *testing.T) {
 	stream.WriteString(`{"jsonrpc":"2.0","id":2,"method":"ping"}` + "\n")
 
 	var out bytes.Buffer
-	if err := mcp.Local(context.Background(), fuzzServer(), security.Subject{ID: "u1"}, &stream, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, &stream, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 
@@ -93,7 +91,7 @@ func TestAnOversizedMessageIsRefusedAndTheStreamResyncs(t *testing.T) {
 		t.Fatalf("an oversized message and a good one produced %d answers: %s", len(lines), out.Bytes())
 	}
 
-	var refusal, good answerShape
+	var refusal, good helpers.AnswerShape
 	if err := json.Unmarshal(lines[0], &refusal); err != nil {
 		t.Fatalf("the refusal is not a response: %v", err)
 	}
@@ -118,15 +116,15 @@ func TestABodyOverTheLimitIsRefusedRatherThanTruncated(t *testing.T) {
 	body := `{"jsonrpc":"2.0","id":1,"method":"ping","params":"` +
 		strings.Repeat("a", 2<<20) + `"}`
 
-	rec := post(t, body)
+	rec := helpers.Post(body)
 
-	if rec.Code == stdhttp.StatusOK {
+	if rec.Code == http.StatusOK {
 		answered, _ := io.ReadAll(rec.Body)
 		t.Fatalf("a body over the limit was cut short and parsed, and answered %s", answered)
 	}
-	if rec.Code != stdhttp.StatusRequestEntityTooLarge {
+	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("a body over the limit was answered %d, want %d",
-			rec.Code, stdhttp.StatusRequestEntityTooLarge)
+			rec.Code, http.StatusRequestEntityTooLarge)
 	}
 }
 
@@ -136,12 +134,12 @@ func TestAMessageWithinTheLimitStillArrives(t *testing.T) {
 	body := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"note":"` +
 		strings.Repeat("a", 512<<10) + `"}}`
 
-	rec := post(t, body)
+	rec := helpers.Post(body)
 
-	if rec.Code != stdhttp.StatusOK {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("a message inside the limit was answered %d", rec.Code)
 	}
-	var out answerShape
+	var out helpers.AnswerShape
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("the answer is not a response: %v", err)
 	}
@@ -157,29 +155,15 @@ func TestALargeMessageOverAPipeStillArrives(t *testing.T) {
 		strings.Repeat("a", 512<<10) + `"}}` + "\n")
 
 	var out bytes.Buffer
-	if err := mcp.Local(context.Background(), fuzzServer(), security.Subject{ID: "u1"}, in, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, in, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 
-	var answer answerShape
+	var answer helpers.AnswerShape
 	if err := json.Unmarshal(bytes.TrimSuffix(out.Bytes(), []byte("\n")), &answer); err != nil {
 		t.Fatalf("the answer is not a response: %v, %s", err, out.Bytes())
 	}
 	if answer.Error != nil {
 		t.Fatalf("a message inside the limit was refused: %s", out.Bytes())
 	}
-}
-
-// post sends one message to the web transport, through the router that mounts
-// it, and returns what came back.
-func post(t *testing.T, body string) *httptest.ResponseRecorder {
-	t.Helper()
-
-	sessions := security.NewSessionStore(bytes.Repeat([]byte("k"), 32), time.Hour, false, nil)
-	router := fhttp.NewRouter()
-	router.Action(stdhttp.MethodPost, "/mcp", mcp.Web(fuzzServer(), sessions, "t1"))
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(stdhttp.MethodPost, "/mcp", strings.NewReader(body)))
-	return rec
 }

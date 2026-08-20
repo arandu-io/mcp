@@ -1,178 +1,22 @@
-package mcp_test
+package feature
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/arandu-io/framework/security"
 
-	"github.com/arandu-io/mcp"
+	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
-
-// posts is a tool shaped the way a real one is: it asks a service, and the
-// service is handed the Subject the request carried.
-type posts struct {
-	// asked records who the tool was told to act as, which is the thing worth
-	// asserting about -- everything else in this package is transport.
-	asked security.Subject
-	// refuse makes the service answer the way an authorization failure does.
-	refuse bool
-}
-
-func (p *posts) Name() string        { return "list_posts" }
-func (p *posts) Description() string { return "Lists the posts of this blog." }
-
-func (p *posts) Schema() mcp.Schema {
-	return mcp.Object(
-		mcp.String("status", "Which posts to list").Enum("published", "draft"),
-		mcp.Int("limit", "How many to return"),
-	)
-}
-
-func (p *posts) Handle(_ context.Context, r mcp.Request) (mcp.Response, error) {
-	p.asked = r.Subject()
-	if p.refuse {
-		return mcp.Response{}, errors.New("post.list is not allowed for this subject")
-	}
-	status, _ := r.String("status")
-	return mcp.Text("one post, %s", status), nil
-}
-
-func server(t *posts) *mcp.Server {
-	return &mcp.Server{
-		Name: "blog", Version: "1.0.0",
-		Instructions: "The posts of a blog.",
-		Tools:        []mcp.Tool{t},
-	}
-}
-
-// TestTheToolIsCalledAsTheSubjectThatAsked is the one that matters.
-//
-// An MCP server hands a language model the keys to an application. If the
-// subject does not reach the tool, every policy in the project is bypassed by
-// something that talks to it over a pipe -- and it is bypassed quietly, because
-// the answers look right.
-func TestTheToolIsCalledAsTheSubjectThatAsked(t *testing.T) {
-	tool := &posts{}
-	who := security.Subject{ID: "u1", Tenant: "t1", Roles: []string{"author"}}
-
-	out := server(tool).Call(context.Background(), who, "list_posts", map[string]any{"status": "published"})
-	if out.IsError {
-		t.Fatalf("the call failed: %s", out.Text)
-	}
-	if tool.asked.ID != "u1" || tool.asked.Tenant != "t1" {
-		t.Fatalf("the tool was called as %+v, want u1 in t1", tool.asked)
-	}
-}
-
-// TestARefusalIsAnErrorAndNotAnEmptyResult.
-//
-// A model handed an empty list concludes there is nothing there and says so to
-// somebody. A model told it may not, stops. The difference is one boolean and it
-// is the difference between "you have no invoices" and "you cannot see them".
-func TestARefusalIsAnErrorAndNotAnEmptyResult(t *testing.T) {
-	tool := &posts{refuse: true}
-
-	out := server(tool).Call(context.Background(), security.Subject{ID: "u1", Tenant: "t1"},
-		"list_posts", nil)
-
-	if !out.IsError {
-		t.Fatal("a refused authorization was answered as a result")
-	}
-	if !strings.Contains(out.Text, "not allowed") {
-		t.Errorf("the refusal does not say what happened: %q", out.Text)
-	}
-}
-
-// TestAnUndeclaredArgumentIsRefused.
-//
-// A model that invents a parameter and is not told keeps inventing it. Worse, a
-// tool that reads only what it declared acts on a call it half understood.
-func TestAnUndeclaredArgumentIsRefused(t *testing.T) {
-	tool := &posts{}
-
-	out := server(tool).Call(context.Background(), security.Subject{ID: "u1"}, "list_posts",
-		map[string]any{"tenant": "somebody-elses"})
-
-	if !out.IsError {
-		t.Fatal("an argument nobody declared was accepted")
-	}
-	if !strings.Contains(out.Text, "tenant") {
-		t.Errorf("the refusal does not name the argument: %q", out.Text)
-	}
-	// Subject carries a slice and is not comparable, so the id is what says
-	// whether Handle ran at all.
-	if tool.asked.ID != "" {
-		t.Error("the tool ran anyway")
-	}
-}
-
-// TestAWrongTypeAndAWrongEnumAreBothReported, in one answer.
-//
-// A model told one mistake per call spends three calls on a form it could have
-// fixed on the second.
-func TestAWrongTypeAndAWrongEnumAreBothReported(t *testing.T) {
-	out := server(&posts{}).Call(context.Background(), security.Subject{ID: "u1"}, "list_posts",
-		map[string]any{"status": "archived", "limit": "ten"})
-
-	if !out.IsError {
-		t.Fatal("a call with two bad arguments was accepted")
-	}
-	for _, want := range []string{"status", "limit"} {
-		if !strings.Contains(out.Text, want) {
-			t.Errorf("%s is not mentioned: %q", want, out.Text)
-		}
-	}
-}
-
-// TestAnUnknownToolListsTheOnesThatExist: a model retrying the same wrong name
-// is a model that was told nothing useful.
-func TestAnUnknownToolListsTheOnesThatExist(t *testing.T) {
-	out := server(&posts{}).Call(context.Background(), security.Subject{ID: "u1"}, "list_post", nil)
-
-	if !out.IsError {
-		t.Fatal("an unknown tool was accepted")
-	}
-	if !strings.Contains(out.Text, "list_posts") {
-		t.Errorf("the answer does not list what exists: %q", out.Text)
-	}
-}
-
-// TestAServerWithoutDescriptionsIsRefusedAtBoot.
-//
-// A description is what the model reads to decide whether to call a tool, and a
-// tool without one is called at random. It is a mistake in a declaration, so it
-// belongs at boot rather than at the first call.
-func TestAServerWithoutDescriptionsIsRefusedAtBoot(t *testing.T) {
-	s := &mcp.Server{Name: "blog", Tools: []mcp.Tool{&undescribed{}}}
-
-	err := s.Validate()
-	if err == nil {
-		t.Fatal("a tool with no description was accepted")
-	}
-	if !strings.Contains(err.Error(), "description") {
-		t.Errorf("the error does not say what is missing: %v", err)
-	}
-}
-
-// TestTwoToolsWithOneNameAreRefused: the second shadows the first, and which one
-// runs is the order of a slice.
-func TestTwoToolsWithOneNameAreRefused(t *testing.T) {
-	s := &mcp.Server{Name: "blog", Tools: []mcp.Tool{&posts{}, &posts{}}}
-	if err := s.Validate(); err == nil {
-		t.Fatal("two tools with one name were accepted")
-	}
-}
 
 // TestANotificationIsNotAnswered.
 //
 // The protocol says a message with no id gets no answer. Sending one anyway is
 // what makes a client hang up mid-session, and it is invisible until it happens.
 func TestANotificationIsNotAnswered(t *testing.T) {
-	s := server(&posts{})
+	s := helpers.Blog(&helpers.Posts{})
 
 	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); got != nil {
@@ -189,7 +33,7 @@ func TestANotificationIsNotAnswered(t *testing.T) {
 // A capability the server cannot serve is one a client asks about once and
 // reports as the server being broken.
 func TestInitializeDeclaresOnlyWhatTheServerHas(t *testing.T) {
-	body := server(&posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
+	body := helpers.Blog(&helpers.Posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
 
 	var out struct {
@@ -220,8 +64,8 @@ func TestInitializeDeclaresOnlyWhatTheServerHas(t *testing.T) {
 // reads "method":"ping" and runs a tool is a message that whatever stands in
 // front of this server records as a ping.
 func TestAMemberIsTheOneItIsNamed(t *testing.T) {
-	tool := &posts{}
-	s := server(tool)
+	tool := &helpers.Posts{}
+	s := helpers.Blog(tool)
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	ran := s.Handle(context.Background(), who,
@@ -230,7 +74,7 @@ func TestAMemberIsTheOneItIsNamed(t *testing.T) {
 	if strings.Contains(string(ran), "one post") {
 		t.Errorf("a message that names ping called a tool: %s", ran)
 	}
-	if tool.asked.ID != "" {
+	if tool.Asked.ID != "" {
 		t.Error("a message that names ping reached a tool")
 	}
 
@@ -252,7 +96,7 @@ func TestAMemberIsTheOneItIsNamed(t *testing.T) {
 // answer it has nowhere to put, so the protocol asks for the member to be there
 // and null when the request's could not be read.
 func TestAnAnswerAlwaysCarriesAnID(t *testing.T) {
-	s := server(&posts{})
+	s := helpers.Blog(&helpers.Posts{})
 
 	for _, body := range []string{
 		``,
@@ -286,8 +130,8 @@ func TestAnAnswerAlwaysCarriesAnID(t *testing.T) {
 // until something gives up -- so the message is refused while there is still an
 // answer to refuse it with, rather than acted on and answered unmatchably.
 func TestAnIDIsAStringANumberOrNull(t *testing.T) {
-	tool := &posts{}
-	s := server(tool)
+	tool := &helpers.Posts{}
+	s := helpers.Blog(tool)
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, id := range []string{`{"a":1}`, `{}`, `[1,2]`, `[]`, `true`, `false`} {
@@ -298,7 +142,7 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 			t.Errorf("an id of %s got no answer at all, and a request is not a notification", id)
 			continue
 		}
-		var out answerShape
+		var out helpers.AnswerShape
 		if err := json.Unmarshal(answer, &out); err != nil {
 			t.Errorf("an id of %s was answered with something that is not JSON: %v", id, err)
 			continue
@@ -307,7 +151,7 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 			t.Errorf("an id of %s was accepted: %s", id, answer)
 			continue
 		}
-		if out.Error.Code != codeInvalidRequest {
+		if out.Error.Code != helpers.CodeInvalidRequest {
 			t.Errorf("an id of %s was answered with %d, and the message was JSON: %s",
 				id, out.Error.Code, answer)
 		}
@@ -324,7 +168,7 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 			`"params":{"name":"list_posts","arguments":{}}}`)); strings.Contains(string(got), "one post") {
 		t.Errorf("a message with an id nobody can match called a tool: %s", got)
 	}
-	if tool.asked.ID != "" {
+	if tool.Asked.ID != "" {
 		t.Error("a message with an id nobody can match reached a tool")
 	}
 
@@ -339,7 +183,7 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 			t.Errorf("an id of %s got no answer at all", id)
 			continue
 		}
-		var out answerShape
+		var out helpers.AnswerShape
 		if err := json.Unmarshal(answer, &out); err != nil {
 			t.Errorf("an id of %s was answered with something that is not JSON: %v", id, err)
 			continue
@@ -362,7 +206,7 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 // call it never made -- which it has nowhere to put, and which the strict ones
 // treat as the connection having gone wrong.
 func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
-	s := server(&posts{})
+	s := helpers.Blog(&helpers.Posts{})
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, method := range []string{
@@ -377,7 +221,7 @@ func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
 			continue
 		}
 
-		var out answerShape
+		var out helpers.AnswerShape
 		if err := json.Unmarshal(answer, &out); err != nil {
 			t.Errorf("%s was answered with something that is not JSON: %v", method, err)
 			continue
@@ -386,7 +230,7 @@ func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
 			t.Errorf("%s with an id was answered with a result: %s", method, answer)
 			continue
 		}
-		if out.Error.Code != codeInvalidRequest {
+		if out.Error.Code != helpers.CodeInvalidRequest {
 			t.Errorf("%s with an id was answered with %d: the id is what is wrong with the message, "+
 				"not the parameters of a method", method, out.Error.Code)
 		}
@@ -413,8 +257,8 @@ func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
 // one part of the message that was fine, while the part that was wrong is not
 // mentioned at all.
 func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
-	tool := &posts{}
-	s := server(tool)
+	tool := &helpers.Posts{}
+	s := helpers.Blog(tool)
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, params := range []string{`7`, `"list_posts"`, `true`, `""`, `1.5`} {
@@ -426,7 +270,7 @@ func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
 			continue
 		}
 
-		var out answerShape
+		var out helpers.AnswerShape
 		if err := json.Unmarshal(answer, &out); err != nil {
 			t.Errorf("params of %s was answered with something that is not JSON: %v", params, err)
 			continue
@@ -435,7 +279,7 @@ func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
 			t.Errorf("params of %s was accepted: %s", params, answer)
 			continue
 		}
-		if out.Error.Code != codeInvalidRequest {
+		if out.Error.Code != helpers.CodeInvalidRequest {
 			t.Errorf("params of %s was answered with %d: what is wrong is the shape of the message, "+
 				"not a parameter of a method that was reached", params, out.Error.Code)
 		}
@@ -458,7 +302,7 @@ func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
 	if !strings.Contains(string(ran), "one post") {
 		t.Errorf("a call with parameters this server can read was refused: %s", ran)
 	}
-	if tool.asked.ID != "u1" {
+	if tool.Asked.ID != "u1" {
 		t.Error("a call with parameters this server can read did not reach the tool")
 	}
 }
@@ -472,21 +316,21 @@ func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
 // the one answer that is worse than refusing it -- the call proceeds, missing
 // everything it was given.
 func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
-	tool := &posts{}
-	s := server(tool)
+	tool := &helpers.Posts{}
+	s := helpers.Blog(tool)
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	answer := s.Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":["list_posts",{"status":"draft"}]}`))
 
-	var out answerShape
+	var out helpers.AnswerShape
 	if err := json.Unmarshal(answer, &out); err != nil {
 		t.Fatalf("positional params were answered with something that is not JSON: %v, %s", err, answer)
 	}
 	if out.Error == nil {
 		t.Fatalf("positional params were accepted: %s", answer)
 	}
-	if out.Error.Code != codeInvalidRequest {
+	if out.Error.Code != helpers.CodeInvalidRequest {
 		t.Errorf("positional params were answered with %d, and what arrived was not a request "+
 			"this protocol carries", out.Error.Code)
 	}
@@ -495,7 +339,7 @@ func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
 	if !strings.Contains(out.Error.Message, "object") {
 		t.Errorf("positional params were refused without saying what is expected instead: %q", out.Error.Message)
 	}
-	if tool.asked.ID != "" {
+	if tool.Asked.ID != "" {
 		t.Error("a call whose parameters could not be read reached the tool anyway")
 	}
 }
@@ -508,8 +352,8 @@ func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
 // interesting is a server that writes to a client counting bytes it never asked
 // for.
 func TestANotificationIsAnsweredBySilenceHoweverWrongItIs(t *testing.T) {
-	tool := &posts{}
-	s := server(tool)
+	tool := &helpers.Posts{}
+	s := helpers.Blog(tool)
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, body := range []string{
@@ -520,7 +364,7 @@ func TestANotificationIsAnsweredBySilenceHoweverWrongItIs(t *testing.T) {
 			t.Errorf("%s was answered with %s", body, got)
 		}
 	}
-	if tool.asked.ID != "" {
+	if tool.Asked.ID != "" {
 		t.Error("a notification whose parameters could not be read reached the tool")
 	}
 }
@@ -533,7 +377,7 @@ func TestANotificationIsAnsweredBySilenceHoweverWrongItIs(t *testing.T) {
 // both say the call carries no parameters, and refusing one of them would refuse
 // a call that is missing nothing.
 func TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame(t *testing.T) {
-	s := server(&posts{})
+	s := helpers.Blog(&helpers.Posts{})
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	absent := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
@@ -558,14 +402,14 @@ func TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame(t *testing.T) {
 // Ignoring the member is not the same as trusting it: it reaches nothing, which
 // the second half of this test is what pins.
 func TestAMemberNobodyNamedIsCarriedRatherThanRefused(t *testing.T) {
-	tool := &posts{}
-	s := server(tool)
+	tool := &helpers.Posts{}
+	s := helpers.Blog(tool)
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
 	answer := s.Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"ping","nonsense":{"a":1},"_meta":{"progressToken":9}}`))
 
-	var out answerShape
+	var out helpers.AnswerShape
 	if err := json.Unmarshal(answer, &out); err != nil {
 		t.Fatalf("a message with a member nobody named was answered with something that is not JSON: %v", err)
 	}
@@ -575,7 +419,7 @@ func TestAMemberNobodyNamedIsCarriedRatherThanRefused(t *testing.T) {
 
 	// What is unknown is ignored, and ignored means it reaches nothing. A member
 	// that is not read cannot name a tool, whatever it is spelt like.
-	if tool.asked.ID != "" {
+	if tool.Asked.ID != "" {
 		t.Error("a member nobody named reached a tool")
 	}
 }
@@ -586,7 +430,7 @@ func TestAMemberNobodyNamedIsCarriedRatherThanRefused(t *testing.T) {
 // expected, and reporting that the method named by the empty string is not
 // implemented sends the reader looking for a method.
 func TestAMessageWithNoMethodSaysSo(t *testing.T) {
-	answer := server(&posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
+	answer := helpers.Blog(&helpers.Posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
 
 	if !strings.Contains(string(answer), "no method") {
@@ -599,7 +443,7 @@ func TestAMessageWithNoMethodSaysSo(t *testing.T) {
 // "the message is not JSON" about a message that is JSON is a person reading
 // their encoder instead of their fields.
 func TestOnlySomethingThatIsNotJSONIsCalledThat(t *testing.T) {
-	s := server(&posts{})
+	s := helpers.Blog(&helpers.Posts{})
 
 	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":5}`)); strings.Contains(string(got), "not JSON") {
@@ -609,14 +453,4 @@ func TestOnlySomethingThatIsNotJSONIsCalledThat(t *testing.T) {
 		[]byte(`{oops`)); !strings.Contains(string(got), "not JSON") {
 		t.Errorf("a message that is not JSON was reported as something else: %s", got)
 	}
-}
-
-// undescribed is the mistake TestAServerWithoutDescriptions is about.
-type undescribed struct{}
-
-func (undescribed) Name() string        { return "do_something" }
-func (undescribed) Description() string { return "" }
-func (undescribed) Schema() mcp.Schema  { return mcp.Object() }
-func (undescribed) Handle(context.Context, mcp.Request) (mcp.Response, error) {
-	return mcp.Text("ok"), nil
 }
