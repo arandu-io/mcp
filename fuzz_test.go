@@ -112,6 +112,7 @@ func FuzzHandle(f *testing.F) {
 		`{"jsonrpc":"2.0","id":1,"method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","id":null,"method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":1,"method":"ping","nonsense":{"a":1}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_posts","arguments":{"status":"draft"}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`,
 		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"blog://readme"}}`,

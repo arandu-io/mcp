@@ -547,6 +547,39 @@ func TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame(t *testing.T) {
 	}
 }
 
+// TestAMemberNobodyNamedIsCarriedRatherThanRefused.
+//
+// The protocol closes none of its message objects: params is declared to carry
+// members beyond the ones named, and nothing anywhere forbids the message itself
+// from doing the same. A server that refused what it did not recognise would
+// refuse the revision after this one, which is the failure that cannot be fixed
+// from the side that sees it.
+//
+// Ignoring the member is not the same as trusting it: it reaches nothing, which
+// the second half of this test is what pins.
+func TestAMemberNobodyNamedIsCarriedRatherThanRefused(t *testing.T) {
+	tool := &posts{}
+	s := server(tool)
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	answer := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"ping","nonsense":{"a":1},"_meta":{"progressToken":9}}`))
+
+	var out answerShape
+	if err := json.Unmarshal(answer, &out); err != nil {
+		t.Fatalf("a message with a member nobody named was answered with something that is not JSON: %v", err)
+	}
+	if out.Error != nil {
+		t.Fatalf("a member nobody named was refused, and the next revision of the protocol adds one: %s", answer)
+	}
+
+	// What is unknown is ignored, and ignored means it reaches nothing. A member
+	// that is not read cannot name a tool, whatever it is spelt like.
+	if tool.asked.ID != "" {
+		t.Error("a member nobody named reached a tool")
+	}
+}
+
 // TestAMessageWithNoMethodSaysSo.
 //
 // The usual message with no method is an answer that arrived where a call was
