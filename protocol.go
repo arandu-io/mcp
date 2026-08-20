@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/arandu-io/framework/security"
 )
@@ -117,6 +118,17 @@ func isID(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &n) == nil
 }
 
+// isNotification reports whether a method name belongs to a message the sender
+// is not waiting for an answer to.
+//
+// The protocol names every notification it defines under one prefix and no
+// request under it, so the prefix is the test. A list of the nine would be a
+// second place to add the tenth to, and the copy that was not updated is a
+// server that answers a message nobody is listening for.
+func isNotification(method string) bool {
+	return strings.HasPrefix(method, "notifications/")
+}
+
 // failure builds an answer that carries no result, for the given id or for none.
 func failure(id json.RawMessage, code int, message string) []byte {
 	return encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{code, message}})
@@ -165,6 +177,19 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		// reporting that a method named by the empty string is not implemented.
 		return failure(req.ID, codeInvalidRequest, "the message names no method")
 	}
+	if isNotification(req.Method) && len(req.ID) != 0 {
+		// A notification carries no id -- that is what makes it one -- so a
+		// message that names a notification and carries an id is neither: not a
+		// notification, because of the id, and not a request, because no method
+		// under that prefix answers one.
+		//
+		// It is refused rather than answered because answering is the failure
+		// that stays invisible until it is not: a client that was never waiting
+		// receives an answer, and what it does with one it cannot match to a
+		// call is its own decision -- the strict ones close the connection.
+		return failure(req.ID, codeInvalidRequest,
+			req.Method+" is a notification, and a notification carries no id")
+	}
 
 	answer := func(result any) []byte {
 		if len(req.ID) == 0 {
@@ -185,8 +210,13 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 			"capabilities": s.capabilities(),
 		})
 
-	case "notifications/initialized", "ping":
+	case "ping":
 		return answer(map[string]any{})
+
+	case "notifications/initialized":
+		// Reached without an id, because one that carried it was refused above.
+		// There is nothing to do and nothing to answer.
+		return nil
 
 	case "tools/list":
 		tools := make([]map[string]any, 0, len(s.Tools))

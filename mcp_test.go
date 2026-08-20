@@ -354,6 +354,57 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 	}
 }
 
+// TestANotificationThatCarriesAnIDIsRefused.
+//
+// A notification carries no id: that is the whole of what makes it one, and the
+// protocol says so of every method under the prefix. A message that names one
+// and carries an id is neither, and answering it hands a client an answer to a
+// call it never made -- which it has nowhere to put, and which the strict ones
+// treat as the connection having gone wrong.
+func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
+	s := server(&posts{})
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, method := range []string{
+		"notifications/initialized",
+		"notifications/cancelled",
+		"notifications/tools/list_changed",
+	} {
+		answer := s.Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"`+method+`"}`))
+		if answer == nil {
+			t.Errorf("%s with an id got no answer, and a message with an id is not a notification", method)
+			continue
+		}
+
+		var out answerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("%s was answered with something that is not JSON: %v", method, err)
+			continue
+		}
+		if out.Error == nil {
+			t.Errorf("%s with an id was answered with a result: %s", method, answer)
+			continue
+		}
+		if out.Error.Code != codeInvalidRequest {
+			t.Errorf("%s with an id was answered with %d: the id is what is wrong with the message, "+
+				"not the parameters of a method", method, out.Error.Code)
+		}
+		// The id arrived readable, so it comes back: the client is told which of
+		// its calls this refusal belongs to.
+		if string(out.ID) != "1" {
+			t.Errorf("%s came back with an id of %s, which a client cannot key on", method, out.ID)
+		}
+	}
+
+	// Without the id it is a notification again, and a notification is answered
+	// by silence.
+	if got := s.Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); got != nil {
+		t.Errorf("a notification was answered with %s", got)
+	}
+}
+
 // TestAMessageWithNoMethodSaysSo.
 //
 // The usual message with no method is an answer that arrived where a call was
