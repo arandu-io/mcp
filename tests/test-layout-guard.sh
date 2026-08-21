@@ -147,7 +147,7 @@ while IFS= read -r module; do
 	[ -z "$module" ] && continue
 	asked=$((asked + 1))
 
-	if ! packages=$(cd "$module" && GOWORK=off go list -tags 'integration e2e' ./... 2>&1); then
+	if ! packages=$(cd "$module" && GOWORK=off go list -tags integration,e2e ./... 2>&1); then
 		echo "[FAILED] go list failed in $module, so nothing was checked there:"
 		printf '%s\n' "$packages" | sed 's/^/    /'
 		fail=1
@@ -161,7 +161,7 @@ while IFS= read -r module; do
 
 	# One import path per line and none of them has a space: the split is wanted.
 	# shellcheck disable=SC2086
-	if ! dependencies=$(cd "$module" && GOWORK=off go list -tags 'integration e2e' -deps $production 2>&1); then
+	if ! dependencies=$(cd "$module" && GOWORK=off go list -tags integration,e2e -deps $production 2>&1); then
 		echo "[FAILED] go list -deps failed in $module, so nothing was checked there:"
 		printf '%s\n' "$dependencies" | sed 's/^/    /'
 		fail=1

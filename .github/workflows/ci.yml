@@ -45,11 +45,26 @@ jobs:
             exit 1
           fi
 
+      # The three steps that compile the module ask with the same tags the
+      # layout guard below asks with. Nothing here carries a build tag today --
+      # the same five packages and the same 86 tests are listed either way --
+      # so this changes no result. It changes what happens the day a suite goes
+      # behind a tag: without it, these steps stop compiling that suite and say
+      # nothing, and the job is green for having run less than it did before.
+      # The guard would still see the package, so the two would disagree about
+      # what the module contains, and only the quieter one gates the merge.
+      #
+      # Comma-separated, not space-separated. Go still recognises the space
+      # form and deprecated it, so `-tags 'integration e2e'` is right here and
+      # wrong three steps down: govulncheck takes only the comma form and reads
+      # the other as one tag literally named "integration e2e", which satisfies
+      # no file. It would not fail -- it would scan as if no tag were given, on
+      # a line that says one was.
       - name: vet
-        run: go vet ./...
+        run: go vet -tags integration,e2e ./...
 
       - name: test
-        run: go test -race ./...
+        run: go test -tags integration,e2e -race ./...
 
       # The suite is only run by go test when its files are named for it, and a
       # file that is not is skipped without a word. Review does not catch that
@@ -83,7 +98,10 @@ jobs:
 
       # A known vulnerability blocks the merge rather than showing up in a
       # report nobody reads.
+      # Tagged for the reason the vet and test steps are, and it matters most
+      # here: a scanner that silently stops reading part of the module reports
+      # the same clean result as one that read all of it.
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          govulncheck -tags integration,e2e ./...
