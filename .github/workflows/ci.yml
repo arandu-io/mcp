@@ -78,14 +78,53 @@ jobs:
       # framework is what this package is made of. Anything else is not: it is
       # imported by applications that expose themselves to an assistant, and a
       # second require is a download for all of them.
+      #
+      # The pattern anchors on `^[[:space:]]*`, and the leading `*` rather than
+      # a `+` is the whole of the first fix. go.mod writes a require directive
+      # in two shapes, and go mod edit -fmt keeps whichever it finds: a bare
+      # `require <path> <version>` at column zero, and an indented `require (`
+      # block. A pattern demanding leading whitespace reads the second and
+      # never the first, so this file's own direct line -- `require
+      # github.com/arandu-io/framework v0.35.0` -- was outside the check that
+      # exists to police it. It read three lines of go.mod, all of them
+      # indirect. A third-party require written at column zero was invisible,
+      # and so was the framework require being replaced by one.
+      #
+      # `v[0-9]` after the path is what keeps `module`, `go`, `toolchain`,
+      # `retract` and the one-line form of `replace` and `exclude` out without
+      # naming them: a require entry is the only line here that is a path and a
+      # version and nothing else. The `=>` filter drops the body of a replace
+      # block, whose lines have that shape too. The body of an exclude block
+      # would still be reported -- there is none, and a check that errs errs
+      # towards saying so.
+      #
+      # The count is the second fix, and it is the one that generalises. A
+      # pattern that matches nothing and a go.mod with no forbidden dependency
+      # print the same empty string, so until now the step was loudest about
+      # being clean exactly when it had stopped reading the file.
       - name: one dependency
         run: |
-          extra=$(grep -E '^\s+[a-z].*/' go.mod | grep -v '// indirect' | grep -v 'arandu-io/framework' || true)
+          entries=$(grep -E '^[[:space:]]*(require[[:space:]]+)?[^[:space:]]+/[^[:space:]]*[[:space:]]+v[0-9]' go.mod | grep -v '=>' || true)
+
+          scanned=0
+          if [ -n "$entries" ]; then
+            scanned=$(printf '%s\n' "$entries" | grep -c '')
+          fi
+          if [ "$scanned" -eq 0 ]; then
+            echo "no require entry was read, so nothing about the dependencies was checked."
+            echo "go.mod has $(grep -c '' go.mod) lines and the pattern matched none of them."
+            exit 1
+          fi
+
+          extra=$(printf '%s\n' "$entries" | grep -v '// indirect' \
+                    | grep -vE 'github\.com/arandu-io/framework[[:space:]]' || true)
           if [ -n "$extra" ]; then
             echo "this module took a dependency beyond the framework:"
             echo "$extra"
             exit 1
           fi
+
+          echo "read $scanned require entries, and none names a dependency beyond the framework"
 
       - name: no Node
         run: |
