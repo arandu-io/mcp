@@ -21,15 +21,22 @@ before their first patch.
 
 ```
 gofmt -l $(find . -name '*.go' -not -path '*/testdata/*' -not -name '*.kyse.go')
-go vet ./...
-go test -race ./...
+go vet -tags integration,e2e ./...
+go test -tags integration,e2e -race ./...
 bash tests/test-layout-guard.sh
 ```
 
-CI runs exactly this, plus a check that no dependency beyond the framework
-entered this module: it is imported by applications that expose themselves to an
-assistant, and a second require is a download for every one of them. A pull
-request that adds one needs to argue for it first, in an issue.
+The tags are what the layout guard asks with, and the two CI steps above ask
+with them too. Nothing here carries a build tag today, so they change no result
+-- they are here so that the day a suite goes behind one, this file is not
+telling you to run less than CI runs.
+
+CI runs these four and three more. It checks that no dependency beyond the
+framework entered this module: it is imported by applications that expose
+themselves to an assistant, and a second require is a download for every one of
+them. A pull request that adds one needs to argue for it first, in an issue. It
+checks that no Node file appeared. And it runs govulncheck, which is why a
+release can be held by a vulnerability in a dependency you did not add.
 
 ## Where a test goes
 

@@ -18,9 +18,10 @@ Run this before opening. CI runs the same thing, and a formatting difference is
 a failure rather than a comment.
 
 ```
-gofmt -l .        # no output
-go vet ./...
-go test -race ./...
+gofmt -l $(find . -name '*.go' -not -path '*/testdata/*' -not -name '*.kyse.go')
+go vet -tags integration,e2e ./...
+go test -tags integration,e2e -race ./...
+bash tests/test-layout-guard.sh
 ```
 
 - [ ] Every commit carries a `Signed-off-by` line (`git commit -s`)
