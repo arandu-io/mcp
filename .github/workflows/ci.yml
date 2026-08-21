@@ -126,9 +126,33 @@ jobs:
 
           echo "read $scanned require entries, and none names a dependency beyond the framework"
 
+      # No Node, in every shape it arrives in.
+      #
+      # The names are the manifest, the lockfiles, the installed tree, and the
+      # registry and version config. The lockfiles are the half that was
+      # missing, and they are the half that matters: package.json is a wish
+      # list, a lockfile is a resolved Node graph, and each package manager
+      # writes a different one. yarn.lock, pnpm-lock.yaml, package-lock.json,
+      # npm-shrinkwrap.json, bun.lockb and .npmrc all passed the three names
+      # this step used to read.
+      #
+      # .git is pruned rather than filtered back out of the output: a name
+      # matched inside it was never a file of this project, and not descending
+      # into it is the same answer sooner.
+      #
+      # No `|| true`. find exits 0 when it matches nothing, which is the healthy
+      # answer here and the one this step expects; it exits non-zero when it
+      # could not read part of the tree, which is a walk that did not happen.
+      # The old form turned that into a pass -- pointed at a directory it could
+      # not open, it printed the permission error and reported no Node.
       - name: no Node
         run: |
-          found=$(find . -name package.json -o -name node_modules -o -name 'vite.config.*' | grep -v '^./.git' || true)
+          found=$(find . -path ./.git -prune -o \
+            \( -name 'package.json' -o -name 'package-lock.json' \
+               -o -name 'npm-shrinkwrap.json' -o -name 'yarn.lock' \
+               -o -name 'pnpm-lock.yaml' -o -name 'bun.lock' -o -name 'bun.lockb' \
+               -o -name 'node_modules' -o -name '.npmrc' -o -name '.nvmrc' \
+               -o -name 'vite.config.*' \) -print)
           if [ -n "$found" ]; then
             echo "Node entered the view layer:"
             echo "$found"
