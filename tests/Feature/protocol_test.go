@@ -344,6 +344,115 @@ func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
 	}
 }
 
+// TestArgumentsThatAreNotAnObjectAreRefused: the same mistake as params, one
+// level down, and worse there.
+//
+// A params that is not an object is refused before any method reads it. An
+// arguments that is not an object was decoded into nothing and the call went on,
+// so a tool whose arguments are all optional passed its own schema and ran --
+// answering a result to a message this server could not read. A call the client
+// did not make was performed, as the subject the client carried.
+//
+// The milder half is a tool that declares a required argument: it is told the
+// argument is missing, which sends whoever reads that looking for the member
+// they did send.
+func TestArgumentsThatAreNotAnObjectAreRefused(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, arguments := range []string{`[1,2]`, `["status","draft"]`, `"draft"`, `7`, `true`} {
+		tool := &helpers.Posts{}
+		s := helpers.Blog(tool)
+
+		answer := s.Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call",`+
+				`"params":{"name":"list_posts","arguments":`+arguments+`}}`))
+
+		var out helpers.AnswerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("arguments of %s were answered with something that is not JSON: %v", arguments, err)
+			continue
+		}
+		if out.Error == nil {
+			t.Errorf("arguments of %s were accepted: %s", arguments, answer)
+		} else {
+			if out.Error.Code != helpers.CodeInvalidRequest {
+				t.Errorf("arguments of %s were answered with %d: what is wrong is the shape of the "+
+					"message, not a parameter the tool declared", arguments, out.Error.Code)
+			}
+			if !strings.Contains(out.Error.Message, "arguments") {
+				t.Errorf("arguments of %s were refused without naming arguments: %q",
+					arguments, out.Error.Message)
+			}
+		}
+		if tool.Asked.ID != "" {
+			t.Errorf("arguments of %s reached the tool, which ran on a message this server "+
+				"could not read", arguments)
+		}
+	}
+
+	// The check refuses a shape and not a call: arguments this server can read
+	// still reach the tool, and a member that is absent or null still says the
+	// call carries none -- which the tool's schema, declaring nothing required,
+	// accepts.
+	for _, params := range []string{
+		`{"name":"list_posts","arguments":{"status":"draft"}}`,
+		`{"name":"list_posts","arguments":null}`,
+		`{"name":"list_posts"}`,
+	} {
+		tool := &helpers.Posts{}
+		ran := helpers.Blog(tool).Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+params+`}`))
+
+		if !strings.Contains(string(ran), "one post") {
+			t.Errorf("params of %s were refused, and this server can read them: %s", params, ran)
+		}
+		if tool.Asked.ID != "u1" {
+			t.Errorf("params of %s did not reach the tool", params)
+		}
+	}
+}
+
+// TestAPromptWhoseArgumentsCannotBeReadIsNotRendered.
+//
+// The same member, on the other method that carries it. A prompt is rendered
+// into messages a model is about to act on, so one built from arguments that
+// were dropped is a conversation started about the wrong thing -- and it looks
+// like an answer, because it is one.
+func TestAPromptWhoseArgumentsCannotBeReadIsNotRendered(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, arguments := range []string{`[1,2]`, `"x"`, `7`, `true`} {
+		answer := helpers.Everything().Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
+				`"params":{"name":"summarise","arguments":`+arguments+`}}`))
+
+		var out helpers.AnswerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("arguments of %s were answered with something that is not JSON: %v", arguments, err)
+			continue
+		}
+		// A rendered prompt comes back as a result. An error is the only answer
+		// that means the messages were not built.
+		if out.Error == nil {
+			t.Errorf("a prompt was rendered from arguments of %s: %s", arguments, answer)
+			continue
+		}
+		if out.Error.Code != helpers.CodeInvalidRequest {
+			t.Errorf("arguments of %s were answered with %d, and what arrived was not a request "+
+				"this protocol carries", arguments, out.Error.Code)
+		}
+	}
+
+	// Arguments this server can read still render, and the prompt still receives
+	// them rather than an empty map.
+	ran := helpers.Everything().Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
+			`"params":{"name":"summarise","arguments":{"slug":"a-post"}}}`))
+	if !strings.Contains(string(ran), "Summarise a-post") {
+		t.Errorf("a prompt with arguments this server can read was not rendered from them: %s", ran)
+	}
+}
+
 // TestANotificationIsAnsweredBySilenceHoweverWrongItIs.
 //
 // A refusal is still an answer, and a notification gets none. The sender said it

@@ -179,6 +179,32 @@ func shapeOfParams(raw json.RawMessage) paramsShape {
 	}
 }
 
+// argumentsOf reads the arguments member of a call, and reports whether it
+// could be read at all.
+//
+// It asks of arguments what shapeOfParams asks of params, and for the same
+// reason one level further in: a member that is not an object has no arguments
+// to read, so decoding it into nothing and going on runs the call as though none
+// had been sent. That is worse here than it is for params, because nothing
+// downstream notices -- a tool whose arguments are all optional passes its own
+// schema and runs, and the client receives a result for a message this server
+// could not read.
+//
+// An absent member and a null one both mean the call carries no arguments, which
+// is a call the schema is free to accept.
+func argumentsOf(fields map[string]json.RawMessage) (map[string]any, bool) {
+	raw := fields["arguments"]
+	if shapeOfParams(raw) == paramsNone {
+		return map[string]any{}, true
+	}
+
+	var args map[string]any
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, false
+	}
+	return args, true
+}
+
 // failure builds an answer that carries no result, for the given id or for none.
 func failure(id json.RawMessage, code int, message string) []byte {
 	return encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{code, message}})
@@ -307,8 +333,10 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 
 	case "tools/call":
 		p := members(req.Params)
-		var arguments map[string]any
-		_ = json.Unmarshal(p["arguments"], &arguments)
+		arguments, ok := argumentsOf(p)
+		if !ok {
+			return refuse(codeInvalidRequest, "arguments must be an object")
+		}
 
 		out := s.Call(ctx, subject, text(p, "name"), arguments)
 		return answer(map[string]any{
@@ -351,8 +379,10 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 
 	case "prompts/get":
 		p := members(req.Params)
-		var arguments map[string]any
-		_ = json.Unmarshal(p["arguments"], &arguments)
+		arguments, ok := argumentsOf(p)
+		if !ok {
+			return refuse(codeInvalidRequest, "arguments must be an object")
+		}
 		name := text(p, "name")
 
 		for _, pr := range s.Prompts {
