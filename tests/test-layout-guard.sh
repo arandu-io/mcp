@@ -154,7 +154,15 @@ while IFS= read -r module; do
 	# words then arrive as package names, which is what "no required module
 	# provides package v0.12.0" is. CI has a cold cache every run, so this failed
 	# there and passed here.
-	(cd "$module" && GOWORK=off go mod download all >/dev/null 2>&1) || true
+	#
+	# Without the `all`, which is not a shortening. `go mod download all` walks
+	# the whole module graph and writes a hash for every module it meets, so
+	# running this guard left go.sum modified -- one entry here, for a module
+	# nothing imports and `go mod tidy` removes again. A guard that dirties the
+	# tree it is checking makes every later reading of `git status` wrong, and
+	# the argument is not needed: the plain form fetches what the main module
+	# builds, which is exactly what `go list` below is about to ask for.
+	(cd "$module" && GOWORK=off go mod download >/dev/null 2>&1) || true
 
 	if ! packages=$(cd "$module" && GOWORK=off go list -tags integration,e2e ./... 2>&1); then
 		echo "[FAILED] go list failed in $module, so nothing was checked there:"
