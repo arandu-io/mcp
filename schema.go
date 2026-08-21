@@ -99,9 +99,9 @@ func (s Schema) JSON() map[string]any {
 func (s Schema) Validate(args map[string]any) error {
 	var problems []string
 
-	declared := map[string]field{}
+	declared := map[string]bool{}
 	for _, f := range s.fields {
-		declared[f.name] = f
+		declared[f.name] = true
 	}
 
 	for _, f := range s.fields {
@@ -112,34 +112,15 @@ func (s Schema) Validate(args map[string]any) error {
 			}
 			continue
 		}
-
-		switch f.kind {
-		case "string":
-			text, ok := v.(string)
-			if !ok {
-				problems = append(problems, fmt.Sprintf("%s must be a string", f.name))
-				continue
-			}
-			if len(f.enum) > 0 && !contains(f.enum, text) {
-				problems = append(problems, fmt.Sprintf("%s must be one of %s", f.name, strings.Join(f.enum, ", ")))
-			}
-		case "integer":
-			if _, ok := v.(float64); !ok {
-				if _, ok := v.(int); !ok {
-					problems = append(problems, fmt.Sprintf("%s must be a number", f.name))
-				}
-			}
-		case "boolean":
-			if _, ok := v.(bool); !ok {
-				problems = append(problems, fmt.Sprintf("%s must be true or false", f.name))
-			}
+		if problem := f.problem(v); problem != "" {
+			problems = append(problems, problem)
 		}
 	}
 
 	// An argument nobody declared is reported rather than ignored: a model that
 	// invents one and is not told keeps inventing it.
 	for name := range args {
-		if _, ok := declared[name]; !ok {
+		if !declared[name] {
 			problems = append(problems, fmt.Sprintf("%s is not an argument of this tool", name))
 		}
 	}
@@ -149,6 +130,42 @@ func (s Schema) Validate(args map[string]any) error {
 		return fmt.Errorf("%s", strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// problem reports what is wrong with one value for this field, or the empty
+// string if nothing is. It is asked only about a value the call carried, so an
+// argument that is absent is the caller's question and not this one's.
+func (f field) problem(v any) string {
+	switch f.kind {
+	case "string":
+		text, ok := v.(string)
+		switch {
+		case !ok:
+			return fmt.Sprintf("%s must be a string", f.name)
+		case len(f.enum) > 0 && !contains(f.enum, text):
+			return fmt.Sprintf("%s must be one of %s", f.name, strings.Join(f.enum, ", "))
+		}
+	case "integer":
+		if !isNumber(v) {
+			return fmt.Sprintf("%s must be a number", f.name)
+		}
+	case "boolean":
+		if _, ok := v.(bool); !ok {
+			return fmt.Sprintf("%s must be true or false", f.name)
+		}
+	}
+	return ""
+}
+
+// isNumber reports whether a decoded argument is a number. JSON carries one
+// numeric type and it decodes as float64; the int is for a caller that built
+// the map in Go rather than from a message.
+func isNumber(v any) bool {
+	switch v.(type) {
+	case float64, int:
+		return true
+	}
+	return false
 }
 
 func contains(list []string, want string) bool {
