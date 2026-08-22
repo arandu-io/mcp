@@ -60,7 +60,7 @@ put. This module has none -- and a test that stays beside the code without using
 anything unexported is the case that needs an argument, not the other way round.
 `plans/testpackages.go` in the arandu-io working tree checks exactly that, by
 intersecting the identifiers a test names with what its package declares
-unexported, and the checklist runs it across every repository.
+unexported, and the checklist runs it across every Go repository in the project.
 
 Coverage is measured with `-coverpkg=./...`. Without it, running a tree of tests
 reports the coverage of the test packages themselves, which is near zero, and
