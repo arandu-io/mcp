@@ -16,9 +16,9 @@
 ## What this is
 
 The Model Context Protocol is how an assistant reaches a program: the program
-declares tools it can call, and the client picks. This package is the Arandu
-side of that, speaking protocol revision `2024-11-05`, over HTTP or over
-stdio.
+declares tools it can call, resources it can read and prompts it can use, and
+the client picks. This package is the Arandu side of that, speaking protocol
+revision `2024-11-05`, over HTTP or over stdio.
 
 ## Install
 
@@ -122,8 +122,9 @@ declaration, so it belongs at boot rather than at the first call.
 
 - **No attributes**, because Go has none. A tool's name and description are
   methods: more characters, one less mechanism.
-- **No facade**, and no dynamic registration. A server declares its tools in a
-  slice, so a tool that exists and is not reachable is visible in one file.
+- **No facade**, and no dynamic registration. A server declares its tools,
+  resources and prompts in three slices, so one that exists and is not reachable
+  is visible in one file.
 - **No sampling and no roots.** They are in the protocol and nothing in an
   Arandu application needs them yet; a capability declared and not served is one
   a client reports as the server being broken.
