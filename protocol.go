@@ -357,9 +357,21 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 	case "resources/read":
 		uri := text(members(req.Params), "uri")
 
+		// The type the resource declares, read through the same default the
+		// listing uses. Naming one type in resources/list and another here
+		// describes one resource two ways, and a client that took the listing
+		// at its word gets bytes it was told to expect something else from.
+		mime := "text/plain"
+		for _, r := range s.Resources {
+			if r.URI() == uri {
+				mime = mimeOr(r.MimeType())
+				break
+			}
+		}
+
 		out := s.Read(ctx, subject, uri)
 		return answer(map[string]any{
-			"contents": []map[string]any{{"uri": uri, "mimeType": "text/plain", "text": out.Text}},
+			"contents": []map[string]any{{"uri": uri, "mimeType": mime, "text": out.Text}},
 		})
 
 	case "prompts/list":

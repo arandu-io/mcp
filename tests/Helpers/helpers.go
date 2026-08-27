@@ -106,6 +106,29 @@ func (Readme) Read(context.Context, security.Subject) (mcp.Response, error) {
 	return mcp.Text("a blog"), nil
 }
 
+// Manifest is a resource that declares a type of its own, which is what tells
+// the listing and the read apart: Readme leaves MimeType empty and takes the
+// default, and this one does not.
+type Manifest struct{}
+
+// URI, Name, Description, MimeType and Read make it a resource.
+func (Manifest) URI() string         { return "blog://manifest.json" }
+func (Manifest) Name() string        { return "manifest" }
+func (Manifest) Description() string { return "What this blog contains." }
+func (Manifest) MimeType() string    { return "application/json" }
+func (Manifest) Read(context.Context, security.Subject) (mcp.Response, error) {
+	return mcp.Text(`{"posts":1}`), nil
+}
+
+// Files carries the two resources, so one server answers about a declared type
+// and an absent one.
+func Files() *mcp.Server {
+	return &mcp.Server{
+		Name: "blog", Version: "1.0.0",
+		Resources: []mcp.Resource{Readme{}, Manifest{}},
+	}
+}
+
 // Summarise is a prompt, so a message can reach the branches that list and
 // render one.
 type Summarise struct{}
