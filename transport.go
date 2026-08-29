@@ -82,7 +82,7 @@ func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.
 
 // Local serves the server over stdin and stdout.
 //
-// It is what a client on the same machine starts, and it is `aru mcp:start`.
+// It is what a client on the same machine starts.
 // One message per line, which is how the protocol frames itself on a pipe, and
 // no message longer than MaxMessage.
 //
@@ -172,7 +172,7 @@ func Start(ctx context.Context, s *Server, subject security.Subject) error {
 	return Local(ctx, s, subject, os.Stdin, os.Stdout)
 }
 
-// Describe prints what a server offers, for `aru mcp:list`.
+// Describe prints what a server offers to out.
 //
 // It exists because the alternative is connecting a client to find out, and the
 // question "what can this thing do" is asked far more often than it is answered

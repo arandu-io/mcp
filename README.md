@@ -67,7 +67,8 @@ server := &mcp.Server{
 // Over HTTP, for a remote client. The subject comes from the session.
 r.Action("POST", "/mcp", mcp.Web(server, sessions, cfg.Auth.Tenant)).Name("mcp")
 
-// Over stdio, for an assistant on this machine. `aru mcp:start`.
+// Over stdio, for an assistant on this machine. The application supplies the
+// concrete server and the subject that its own policy has established.
 mcp.Start(ctx, server, assistant)
 ```
 
