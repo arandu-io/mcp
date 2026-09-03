@@ -11,6 +11,11 @@ import (
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
 
+// codeResourceNotFound is the code a read of a URI no resource answers to comes
+// back as. It is written here rather than imported because the package keeps
+// its codes unexported.
+const codeResourceNotFound = -32002
+
 // What arrives at this package is written by a program it does not control, so
 // the targets here assert about every byte sequence rather than about the ones a
 // client is supposed to send. A server that stops answering because a message
@@ -60,6 +65,8 @@ func FuzzHandle(f *testing.F) {
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_posts","arguments":{"status":"draft"}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`,
 		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"blog://readme"}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"blog://nothing"}}`,
+		`{"jsonrpc":"2.0","method":"resources/read","params":{"uri":"blog://nothing"}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"prompts/list"}`,
 		`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"summarise","arguments":{"slug":"x"}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"nope"}`,
@@ -107,7 +114,8 @@ func FuzzHandle(f *testing.F) {
 
 		if out.Error != nil {
 			switch out.Error.Code {
-			case helpers.CodeParse, helpers.CodeInvalidRequest, helpers.CodeMethodNotFound, helpers.CodeInternal:
+			case helpers.CodeParse, helpers.CodeInvalidRequest, helpers.CodeMethodNotFound,
+				helpers.CodeInternal, codeResourceNotFound:
 			default:
 				t.Fatalf("the answer carries an undeclared code: %s", answer)
 			}

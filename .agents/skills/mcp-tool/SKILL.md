@@ -143,22 +143,20 @@ directly, so the same rule applies — it goes to the service, not to a query.
 Two resources at one URI are refused by `Validate`.
 
 A resource is the same type listed and read. `resources/read` looks the
-resource up by URI and answers `"mimeType": mime`, taken through the same
-default the listing uses, so an empty `MimeType` is `text/plain` in both
-(`protocol.go:357-375`). A URI no resource answers to reads as `text/plain`,
-because what comes back is the refusal —
-`TestAResourceIsTheSameTypeListedAndRead`,
-`TestAURINobodyAnswersToIsStillReadAsText`.
+resource up by URI and answers with the type it declares, taken through the
+same default the listing uses, so an empty `MimeType` is `text/plain` in both —
+`TestAResourceIsTheSameTypeListedAndRead`.
 
-One edge before declaring a type other than text: a `Read` that returns an
-error is answered as content, not as a failure. `resources/read` carries no
-`isError`, and the error text goes out under the type the resource declares.
-Measured with a resource declaring `application/json` whose `Read` returned an
-error: the answer was `"mimeType":"application/json"` with the text
-`blog://manifest.json: manifest.read is not allowed for this subject`. A client
-that parses by the declared type is handed a refusal it cannot parse, and a
-model reading it gets words rather than a marked failure. Changing that is a
-`mcp-protocol` job.
+A read that did not happen is not answered as the resource. A URI no resource
+answers to is the JSON-RPC error `-32002`, and a `Read` that returned an error
+is `-32603` with the error's text as the message — the two codes the
+`2024-11-05` resources page names for a read. Either way there is no `contents`
+member, so a client never caches a refusal under the URI or hands it to a
+parser that trusted the declared type —
+`TestAURINobodyAnswersToIsAFailureAndNamesItsOwnCode`,
+`TestAReadThatDidNotHappenIsNotAnsweredAsTheResourceItself`. Return the
+service's error from `Read` rather than describing it in the text: text is
+answered as the resource.
 
 A `Prompt` is a conversation the application knows how to start: `Arguments()`
 declares what the client fills in, and `Render` builds `[]mcp.Message` with

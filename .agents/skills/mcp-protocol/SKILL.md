@@ -111,28 +111,39 @@ transport already knows and this file must not learn.
 
 ## The error codes, and which failures are not codes
 
-Three constants, plus a fourth spelt out in bytes in `encode` because it is the
-answer to marshalling having failed:
+Five constants. `-32603` is also spelt out in bytes in `encode`, because there
+it is the answer to marshalling having failed:
 
 ```
 -32700  the message is not JSON
 -32600  it is JSON but not a request the server can carry
 -32601  the method is not implemented
--32603  encoding the answer failed
+-32603  a call that was read and failed inside, or encoding the answer failed
+-32002  resources/read named a URI no resource answers to
 ```
 
-Everything an **application** can go wrong with is a `Response` with `IsError`
-set instead, which the model reads, rather than a transport error, which it does
-not. A refused authorization, a tool that does not exist, arguments that do not
-match a schema — all of those come back as a result with `isError: true` and a
-`200`.
+What a failure is depends on the method, because the three methods that reach
+application code answer in three different envelopes.
 
-That holds for `tools/call`, which is the one method whose result has an
-`isError` member. The other two that reach application code carry the failure
-as words: a `Read` that fails is answered as one content part whose text is the
-error, under the type the resource declares, and a `Render` that fails as no
-messages with the error as the description. Nothing in either envelope marks it
-as a failure.
+**`tools/call`** is the one whose result has an `isError` member. Everything an
+application can go wrong with there is a `Response` with `IsError` set, which
+the model reads, rather than a transport error, which it does not. A refused
+authorization, a tool that does not exist, arguments that do not match a schema
+— all of those come back as a result with `isError: true` and a `200`.
+
+**`resources/read`** answers a document, and a document whose text is the words
+of a failure is one the client caches under the URI and hands to a parser that
+trusted the declared type. So a read that did not happen is a JSON-RPC error and
+never `contents`: `-32002` for a URI nobody answers to, `-32603` for a `Read`
+that returned an error, with its text as the message. Those are the two codes
+the `2024-11-05` resources page lists under its error handling —
+`TestAURINobodyAnswersToIsAFailureAndNamesItsOwnCode`,
+`TestAReadThatDidNotHappenIsNotAnsweredAsTheResourceItself`,
+`TestAReadThatFailedIsStillSilentWhenItWasANotification`.
+
+**`prompts/get`** still carries the failure as words: a `Render` that fails is
+answered as no messages with the error as the description, and nothing in the
+envelope marks it as a failure.
 
 The two nearby wrong messages each have a test: "the message is not JSON" is
 reserved for bytes that really are not
@@ -249,28 +260,20 @@ harness means comparing the two ids as bytes, or decoding with a
   opinion about the other.
 - **Anything read from a message that decides who is asking.** See above.
 
-## One inconsistency still in the file
+## A resource is one type, listed and read
 
-A resource is the same type listed and read. `resources/read` looks the
-resource up by URI and answers `"mimeType": mime`, read through the same
-`mimeOr` default that `resources/list` uses (`protocol.go:357-375`). A URI no
-resource answers to reads as `text/plain`, because what comes back then is the
-refusal. `TestAResourceIsTheSameTypeListedAndRead` pins the first — one
-resource declaring `application/json`, one leaving the type empty — and
-`TestAURINobodyAnswersToIsStillReadAsText` the second.
+`resources/read` looks the resource up by URI and answers with the type it
+declares, read through the same `mimeOr` default that `resources/list` uses. A
+client that took the listing at its word is never handed bytes it was told to
+expect as something else. `TestAResourceIsTheSameTypeListedAndRead` pins it with
+one resource declaring `application/json` and one leaving the type empty.
 
-What is still uneven is the failure. `Server.Read` answers a `Read` that
-returned an error with `IsError` set, and the read branch carries only
-`out.Text`, so the refusal goes out under the type the resource declares.
-Measured with a resource declaring `application/json` whose `Read` returned an
-error:
+The failures never reach that branch's answer. The same pass that finds the type
+answers whether there is a resource at all, and a read that broke is refused
+before `contents` is built — see the error codes above. Measured before the
+change, with a resource declaring `application/json` whose `Read` returned an
+error, the refusal went out as the document:
 
 ```
 {"jsonrpc":"2.0","id":1,"result":{"contents":[{"mimeType":"application/json","text":"blog://manifest.json: manifest.read is not allowed for this subject","uri":"blog://manifest.json"}]}}
 ```
-
-A client that parses by the declared type is handed a refusal it cannot parse.
-Fixing it is a choice between labelling a failed read `text/plain` and
-answering it as a JSON-RPC error. The second changes what a client sees for
-every refused read, so propose it before writing it. No test pins either answer
-today.

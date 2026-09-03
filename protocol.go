@@ -40,16 +40,28 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// The three codes this server sends about a message. Everything an application
-// can go wrong with is a Response with IsError set instead, which the model
-// reads, rather than a transport error, which it does not.
+// The codes this server sends about a message.
 //
-// encode carries a fourth, -32603, spelt out in bytes there because it is the
-// answer to marshalling itself having failed.
+// The first three are about the message itself. The last two are about a call
+// that was read and did not happen, and they exist because a tool and a
+// resource fail in different places: a tool answers the model with a Response
+// carrying IsError, which the model reads and can act on, while a resource is
+// a document -- and a document whose text is the words of a failure is one the
+// client caches, labels and hands to the model as the thing it asked for.
+//
+// The two are the ones the revision this package speaks names for a read: its
+// resources page asks a server to answer a resource that is not found with
+// -32002 and an internal error with -32603, and lists no third.
+//
+// codeInternal is also spelt out in bytes inside encode, because that one is
+// the answer to marshalling itself having failed and nothing there can be
+// trusted to encode.
 const (
-	codeParse          = -32700
-	codeInvalidRequest = -32600
-	codeMethodNotFound = -32601
+	codeParse            = -32700
+	codeInvalidRequest   = -32600
+	codeMethodNotFound   = -32601
+	codeInternal         = -32603
+	codeResourceNotFound = -32002
 )
 
 // content is one piece of a result, in the shape the protocol carries.
@@ -361,15 +373,30 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		// listing uses. Naming one type in resources/list and another here
 		// describes one resource two ways, and a client that took the listing
 		// at its word gets bytes it was told to expect something else from.
-		mime := "text/plain"
+		//
+		// The same pass answers whether there is a resource at all, which is a
+		// different failure from a read that broke: the client that named the
+		// wrong URI can correct it, and the one whose read failed can retry.
+		mime, known := "text/plain", false
 		for _, r := range s.Resources {
 			if r.URI() == uri {
-				mime = mimeOr(r.MimeType())
+				mime, known = mimeOr(r.MimeType()), true
 				break
 			}
 		}
+		if !known {
+			return refuse(codeResourceNotFound, "there is no resource at "+uri)
+		}
 
 		out := s.Read(ctx, subject, uri)
+		if out.IsError {
+			// A read that did not happen is a failure of the call and not a
+			// document. Putting its text in contents describes the failure as
+			// the resource, and everything downstream then treats it as one --
+			// the client caches it under the URI, and the model reads "not
+			// allowed" as the thing it asked for.
+			return refuse(codeInternal, out.Text)
+		}
 		return answer(map[string]any{
 			"contents": []map[string]any{{"uri": uri, "mimeType": mime, "text": out.Text}},
 		})
