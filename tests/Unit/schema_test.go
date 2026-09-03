@@ -1,6 +1,7 @@
 package unit
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -67,6 +68,69 @@ func TestTheModelIsToldWhichArgumentsAreRequired(t *testing.T) {
 	// model given "the status" invents a value.
 	if _, ok := status["enum"]; !ok {
 		t.Errorf("the closed list did not reach the client: %v", status)
+	}
+}
+
+// TestAnIntegerArgumentIsAWholeNumberInRange.
+//
+// JSON has one numeric type, so 1.9 and 1e100 arrive as perfectly good numbers
+// and a check that only asks "is this a number" lets both through. What follows
+// is not a rounding: the tool converts, and 1.9 reaches it as 1 while a value
+// past the range of an int converts to whatever the machine does with it -- the
+// Go specification leaves that to the implementation, so the same message means
+// one thing here and another on the deployment host. A tool asked for 1e100
+// rows and handed nine quintillion runs a query nobody wrote.
+//
+// The boundary is checked on both sides because it is where the float stops
+// being exact: the largest int64 has no float64 of its own and rounds up to the
+// first value past the range, so a check written against it accepts the one
+// number it exists to refuse.
+func TestAnIntegerArgumentIsAWholeNumberInRange(t *testing.T) {
+	schema := mcp.Object(mcp.Int("limit", "How many to return"))
+
+	for _, bad := range []struct {
+		about string
+		value any
+	}{
+		{"a fraction", 1.9},
+		{"a fraction below one", 0.5},
+		{"a negative fraction", -0.5},
+		{"a value past the range of an int", 1e100},
+		{"a negative value past the range of an int", -1e100},
+		{"the first value past the largest int64", 9223372036854775808.0},
+		{"not a number at all", math.NaN()},
+		{"an infinity", math.Inf(1)},
+		{"a negative infinity", math.Inf(-1)},
+		{"a string", "10"},
+		{"a boolean", true},
+	} {
+		err := schema.Validate(map[string]any{"limit": bad.value})
+		if err == nil {
+			t.Errorf("%s was accepted where an integer was declared", bad.about)
+			continue
+		}
+		if !strings.Contains(err.Error(), "limit") {
+			t.Errorf("%s was refused without naming the argument: %v", bad.about, err)
+		}
+	}
+
+	// The numbers that are integers still are, including the two ends of the
+	// range and the ones a float64 carries exactly.
+	for _, good := range []struct {
+		about string
+		value any
+	}{
+		{"zero", 0.0},
+		{"a small number", 20.0},
+		{"a negative number", -3.0},
+		{"a number written with an exponent", 1e15},
+		{"the largest float64 that is exactly an integer", 9007199254740992.0},
+		{"the smallest int64", -9223372036854775808.0},
+		{"an int built in Go rather than decoded", 7},
+	} {
+		if err := schema.Validate(map[string]any{"limit": good.value}); err != nil {
+			t.Errorf("%s was refused where an integer was declared: %v", good.about, err)
+		}
 	}
 }
 

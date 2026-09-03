@@ -75,16 +75,15 @@ func (r Request) String(name string) (string, bool) {
 	return v, ok
 }
 
-// Int reads a number. JSON has one numeric type and it decodes as float64, so
-// this is where that stops being the caller's problem.
+// Int reads a whole number, and reports whether the argument carried one.
+//
+// JSON has a single numeric type and it decodes as float64, so this is where a
+// fraction, an infinity and a value past the range of an int stop being the
+// caller's problem. Each of them answers false rather than a converted value: a
+// tool told the number is not there asks again, and a tool handed 1 for 1.9 has
+// no way to know it should.
 func (r Request) Int(name string) (int, bool) {
-	switch v := r.Arguments[name].(type) {
-	case float64:
-		return int(v), true
-	case int:
-		return v, true
-	}
-	return 0, false
+	return wholeNumber(r.Arguments[name])
 }
 
 // Bool reads a boolean.

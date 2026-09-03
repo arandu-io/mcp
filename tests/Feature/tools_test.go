@@ -2,11 +2,13 @@ package feature
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
 	"github.com/arandu-io/framework/security"
 
+	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
 
@@ -87,6 +89,101 @@ func TestAWrongTypeAndAWrongEnumAreBothReported(t *testing.T) {
 		if !strings.Contains(out.Text, want) {
 			t.Errorf("%s is not mentioned: %q", want, out.Text)
 		}
+	}
+}
+
+// limited is a tool that reads a number and records what it read, so a test can
+// see the value that reached application code rather than the one that was
+// sent.
+type limited struct {
+	got int
+	ok  bool
+	ran bool
+}
+
+// Name, Description and Schema make it a tool.
+func (*limited) Name() string        { return "list_posts" }
+func (*limited) Description() string { return "Lists the posts of this blog." }
+func (*limited) Schema() mcp.Schema {
+	return mcp.Object(mcp.Int("limit", "How many to return"))
+}
+
+// Handle records the number the request carried.
+func (t *limited) Handle(_ context.Context, r mcp.Request) (mcp.Response, error) {
+	t.ran = true
+	t.got, t.ok = r.Int("limit")
+	return mcp.Text("%d", t.got), nil
+}
+
+// TestANumberThatIsNotAnIntegerNeverReachesTheTool.
+//
+// The measured behaviour was that 1.9 arrived at the handler as 1 and 1e100 as
+// the largest int the machine has. Neither is the number the client sent, and
+// neither is refused anywhere: the tool runs, answers, and the answer is about
+// a different call. The refusal has to come before Handle, because after it
+// there is nothing left that knows what was asked for.
+func TestANumberThatIsNotAnIntegerNeverReachesTheTool(t *testing.T) {
+	for _, bad := range []struct {
+		about string
+		value any
+	}{
+		{"a fraction", 1.9},
+		{"a value past the range of an int", 1e100},
+	} {
+		tool := &limited{}
+		out := helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1"},
+			"list_posts", map[string]any{"limit": bad.value})
+
+		if !out.IsError {
+			t.Errorf("%s was accepted where an integer was declared: %q", bad.about, out.Text)
+		}
+		if tool.ran {
+			t.Errorf("%s reached the tool, which then read %d", bad.about, tool.got)
+		}
+	}
+
+	// A whole number still reaches it, and reaches it as itself.
+	tool := &limited{}
+	if out := helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1"},
+		"list_posts", map[string]any{"limit": 20.0}); out.IsError {
+		t.Fatalf("a whole number was refused: %q", out.Text)
+	}
+	if !tool.ok || tool.got != 20 {
+		t.Errorf("the tool read %d (present: %v), want 20", tool.got, tool.ok)
+	}
+}
+
+// TestReadingANumberThatIsNotAnIntegerReportsThatItIsNot.
+//
+// Int is reachable without a schema -- a prompt reads its arguments through the
+// same Request -- so the refusal cannot live only in the schema. Answering
+// false is the only answer that does not invent a value: a tool told "there is
+// no number here" asks again, and a tool handed 1 for 1.9 does not know to.
+func TestReadingANumberThatIsNotAnIntegerReportsThatItIsNot(t *testing.T) {
+	for _, bad := range []struct {
+		about string
+		value any
+	}{
+		{"a fraction", 1.9},
+		{"a value past the range of an int", 1e100},
+		{"an infinity", math.Inf(1)},
+		{"not a number at all", math.NaN()},
+	} {
+		tool := &limited{}
+		helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1"}, "list_posts", nil)
+
+		r := mcp.Request{Arguments: map[string]any{"limit": bad.value}}
+		if got, ok := r.Int("limit"); ok {
+			t.Errorf("%s was read as the integer %d", bad.about, got)
+		}
+	}
+
+	r := mcp.Request{Arguments: map[string]any{"limit": 20.0}}
+	if got, ok := r.Int("limit"); !ok || got != 20 {
+		t.Errorf("a whole number was read as %d (present: %v), want 20", got, ok)
+	}
+	if _, ok := (mcp.Request{}).Int("limit"); ok {
+		t.Error("an argument that was never sent was read as a number")
 	}
 }
 

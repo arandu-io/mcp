@@ -83,14 +83,14 @@ the same wrong name is a model that was told nothing useful —
 Two tools with one name is refused by `Validate` rather than resolved by order —
 `TestTwoToolsWithOneNameAreRefused`.
 
-## The schema, and the two edges it has
+## The schema, and the edge it has
 
 Three kinds of argument, and nothing else:
 
 | builder | JSON type | what `Validate` accepts |
 | --- | --- | --- |
 | `mcp.String(name, description)` | `string` | a string, and one of the enum if there is one |
-| `mcp.Int(name, description)` | `integer` | any JSON number |
+| `mcp.Int(name, description)` | `integer` | a whole number in the range of an `int`: no fraction, no infinity, no NaN |
 | `mcp.Bool(name, description)` | `boolean` | `true` or `false` |
 
 `.Required()` on any of them; `.Enum(...)` to close a set. Reach for the enum:
@@ -103,20 +103,23 @@ schema the client is shown, so the model knows before it calls —
 `TestTheModelIsToldWhichArgumentsAreRequired`,
 `TestARequiredArgumentThatWasNotSentIsRefused`.
 
-Two edges, both measured rather than read:
+One edge, measured rather than read:
 
 **`.Enum` on an `Int` is advertised and never enforced.** The schema goes out
-carrying it and `Validate` accepts anything numeric — `problem` compares against
+carrying it and `Validate` accepts any whole number — `problem` compares against
 the enum only for a string field. Measured: a schema of
 `mcp.Int("limit", "how many").Enum("1", "2")` renders
 `map[description:how many enum:[1 2] type:integer]`, and
 `Validate(map[string]any{"limit": 99})` returns `<nil>`. If the set matters,
 declare it as a `String` and convert in `Handle`.
 
-**`integer` means "a number".** `1.5` passes validation, and `r.Int` truncates
-it to `1` without saying so. Measured through `Server.Call` with
-`{"limit": 1.5}`: no error, and the tool read `1`. Check the bound in `Handle`
-when a fractional value would be wrong.
+**`integer` means a whole number this server can carry.** `1.9`, `0.5` and
+`1e100` are refused before `Handle` runs, and `r.Int` answers `false` for them
+rather than converting: 1.9 used to reach the tool as 1, and a value past the
+range of an `int` as whatever the machine did with it —
+`TestAnIntegerArgumentIsAWholeNumberInRange`,
+`TestANumberThatIsNotAnIntegerNeverReachesTheTool`,
+`TestReadingANumberThatIsNotAnIntegerReportsThatItIsNot`.
 
 ## Reading the arguments
 
