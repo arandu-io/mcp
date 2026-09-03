@@ -162,8 +162,11 @@ A `Prompt` is a conversation the application knows how to start: `Arguments()`
 declares what the client fills in, and `Render` builds `[]mcp.Message` with
 `mcp.User` and `mcp.Assistant`. The roles are the two strings the protocol
 carries and nothing else — `TestBothRolesAreSpeltTheWayTheProtocolCarriesThem`.
-A `Render` that returns an error answers with no messages and the error text as
-the description, so the client sees why rather than an empty prompt.
+A `Render` that returns an error is answered as the JSON-RPC error `-32603` with
+the error text as the message, and a prompt name nobody declared as `-32602`:
+neither is an empty conversation, which the model would read as there being
+nothing to say. Return the service's error from `Render` for the same reason a
+tool returns it from `Handle`.
 
 ## What has no correct form here
 

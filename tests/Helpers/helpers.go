@@ -31,6 +31,7 @@ import (
 const (
 	CodeParse          = -32700
 	CodeInvalidRequest = -32600
+	CodeInvalidParams  = -32602
 	CodeMethodNotFound = -32601
 	CodeInternal       = -32603
 )
@@ -146,6 +147,49 @@ func (Summarise) Arguments() []mcp.Argument {
 func (Summarise) Render(_ context.Context, r mcp.Request) ([]mcp.Message, error) {
 	slug, _ := r.String("slug")
 	return []mcp.Message{mcp.User("Summarise " + slug)}, nil
+}
+
+// Unrenderable is a prompt whose Render refuses, which is what a policy
+// answers with when the subject may not have it. It is the case a successful
+// answer carrying no messages cannot be told from.
+type Unrenderable struct{}
+
+// Name and Description are what a client lists the prompt as.
+func (Unrenderable) Name() string        { return "unrenderable" }
+func (Unrenderable) Description() string { return "A prompt nobody may have." }
+
+// Arguments declares none: what is being reached is the failure, not a check.
+func (Unrenderable) Arguments() []mcp.Argument { return nil }
+
+// Render refuses.
+func (Unrenderable) Render(context.Context, mcp.Request) ([]mcp.Message, error) {
+	return nil, errors.New("prompt.get is not allowed for this subject")
+}
+
+// Silent is a prompt that renders no messages and means it. It is the one
+// answer an empty list is reserved for, and it is why a failure has to be
+// carried some other way.
+type Silent struct{}
+
+// Name and Description are what a client lists the prompt as.
+func (Silent) Name() string        { return "silent" }
+func (Silent) Description() string { return "A prompt with nothing to say yet." }
+
+// Arguments declares none.
+func (Silent) Arguments() []mcp.Argument { return nil }
+
+// Render answers with no messages and no error.
+func (Silent) Render(context.Context, mcp.Request) ([]mcp.Message, error) {
+	return []mcp.Message{}, nil
+}
+
+// Conversations carries the three prompts, so one server answers a prompt that
+// renders, one that refuses and one that is deliberately empty.
+func Conversations() *mcp.Server {
+	return &mcp.Server{
+		Name: "blog", Version: "1.0.0",
+		Prompts: []mcp.Prompt{Summarise{}, Unrenderable{}, Silent{}},
+	}
 }
 
 // Blog is a server carrying the one tool it is given, so a test can keep hold

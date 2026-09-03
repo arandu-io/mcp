@@ -114,8 +114,8 @@ func FuzzHandle(f *testing.F) {
 
 		if out.Error != nil {
 			switch out.Error.Code {
-			case helpers.CodeParse, helpers.CodeInvalidRequest, helpers.CodeMethodNotFound,
-				helpers.CodeInternal, codeResourceNotFound:
+			case helpers.CodeParse, helpers.CodeInvalidRequest, helpers.CodeInvalidParams,
+				helpers.CodeMethodNotFound, helpers.CodeInternal, codeResourceNotFound:
 			default:
 				t.Fatalf("the answer carries an undeclared code: %s", answer)
 			}

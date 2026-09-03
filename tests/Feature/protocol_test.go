@@ -453,6 +453,122 @@ func TestAPromptWhoseArgumentsCannotBeReadIsNotRendered(t *testing.T) {
 	}
 }
 
+// promptMessages reads the messages a prompts/get result carried, and reports
+// whether the answer was a result at all.
+func promptMessages(t *testing.T, body []byte) ([]json.RawMessage, *helpers.AnswerShape) {
+	t.Helper()
+
+	var answer helpers.AnswerShape
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("the answer is not a response: %v, %s", err, body)
+	}
+	if answer.Error != nil {
+		return nil, &answer
+	}
+	var result struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(answer.Result, &result); err != nil {
+		t.Fatalf("the result is not the shape prompts/get carries: %v, %s", err, body)
+	}
+	return result.Messages, &answer
+}
+
+// TestAPromptThatWasNotRenderedIsNotAnsweredWithAnEmptyConversation.
+//
+// A prompt nobody may have and a prompt that broke both came back as a result
+// carrying no messages, which is the same answer a prompt that had nothing to
+// say gives. The client cannot tell the three apart, so a refusal reads as a
+// conversation with nothing in it -- the empty-list mistake this server refuses
+// to make for a tool, made for a prompt instead.
+func TestAPromptThatWasNotRenderedIsNotAnsweredWithAnEmptyConversation(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	refused := helpers.Conversations().Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"unrenderable"}}`))
+
+	messages, answer := promptMessages(t, refused)
+	if answer.Error == nil {
+		t.Fatalf("a prompt that refused was answered with %d messages and no failure: %s",
+			len(messages), refused)
+	}
+	if answer.Error.Code != helpers.CodeInternal {
+		t.Errorf("a prompt that refused was answered with %d, want %d",
+			answer.Error.Code, helpers.CodeInternal)
+	}
+	if !strings.Contains(answer.Error.Message, "not allowed") {
+		t.Errorf("the failure does not say what happened: %q", answer.Error.Message)
+	}
+}
+
+// TestAPromptNobodyDeclaredIsAFailureAndNotAnEmptyConversation.
+//
+// The name came from the model, so it is the one thing a client can correct.
+// Answered as a result with no messages, there is nothing to correct: the model
+// reads a prompt that exists and is empty.
+func TestAPromptNobodyDeclaredIsAFailureAndNotAnEmptyConversation(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	missing := helpers.Conversations().Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"summarize"}}`))
+
+	_, answer := promptMessages(t, missing)
+	if answer.Error == nil {
+		t.Fatalf("a prompt nobody declared was answered with a result: %s", missing)
+	}
+	if answer.Error.Code != helpers.CodeInvalidParams {
+		t.Errorf("a prompt nobody declared was answered with %d, want %d",
+			answer.Error.Code, helpers.CodeInvalidParams)
+	}
+	if !strings.Contains(answer.Error.Message, "summarize") {
+		t.Errorf("the failure does not name the prompt that was asked for: %q", answer.Error.Message)
+	}
+}
+
+// TestAnEmptyConversationIsWhatAPromptThatMeantItAnswers.
+//
+// The list is not being taken away, it is being given back its one meaning: a
+// handler that returned no messages and no error said there are none, and that
+// answer still arrives as a result.
+func TestAnEmptyConversationIsWhatAPromptThatMeantItAnswers(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	silent := helpers.Conversations().Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"silent"}}`))
+
+	messages, answer := promptMessages(t, silent)
+	if answer.Error != nil {
+		t.Fatalf("a prompt that meant to answer nothing was refused: %s", silent)
+	}
+	if len(messages) != 0 {
+		t.Errorf("a prompt that answers nothing carried %d messages", len(messages))
+	}
+
+	// And one that has something to say still carries it.
+	rendered := helpers.Conversations().Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
+			`"params":{"name":"summarise","arguments":{"slug":"a-post"}}}`))
+	if messages, answer := promptMessages(t, rendered); answer.Error != nil || len(messages) != 1 {
+		t.Errorf("a prompt that renders was not answered with its messages: %s", rendered)
+	}
+}
+
+// TestAPromptThatFailedIsStillSilentWhenItWasANotification.
+//
+// A failure is still an answer, and a notification gets none. Turning the new
+// failures into the one message a sender that is not listening receives is how
+// this change would break a client that was working.
+func TestAPromptThatFailedIsStillSilentWhenItWasANotification(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, name := range []string{"unrenderable", "summarize", "silent"} {
+		if got := helpers.Conversations().Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","method":"prompts/get","params":{"name":"`+name+`"}}`)); got != nil {
+			t.Errorf("a notification asking for %s was answered with %s", name, got)
+		}
+	}
+}
+
 // TestANotificationIsAnsweredBySilenceHoweverWrongItIs.
 //
 // A refusal is still an answer, and a notification gets none. The sender said it

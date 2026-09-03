@@ -42,16 +42,19 @@ type rpcError struct {
 
 // The codes this server sends about a message.
 //
-// The first three are about the message itself. The last two are about a call
-// that was read and did not happen, and they exist because a tool and a
-// resource fail in different places: a tool answers the model with a Response
-// carrying IsError, which the model reads and can act on, while a resource is
-// a document -- and a document whose text is the words of a failure is one the
-// client caches, labels and hands to the model as the thing it asked for.
+// The first three are about the message itself. The rest are about a call that
+// was read and did not happen, and they exist because a tool fails in a place
+// the others do not: a tool answers the model with a Response carrying IsError,
+// which the model reads and can act on, while a resource is a document and a
+// prompt is a conversation. A document whose text is the words of a failure is
+// one the client caches, labels and hands to the model as the thing it asked
+// for, and a conversation with no turns in it is one the model reads as there
+// being nothing to say.
 //
-// The two are the ones the revision this package speaks names for a read: its
+// Each is the one the revision this package speaks names for that failure. Its
 // resources page asks a server to answer a resource that is not found with
-// -32002 and an internal error with -32603, and lists no third.
+// -32002 and an internal error with -32603; its prompts page asks for -32602
+// when the prompt named does not exist and -32603 for an internal error.
 //
 // codeInternal is also spelt out in bytes inside encode, because that one is
 // the answer to marshalling itself having failed and nothing there can be
@@ -59,6 +62,7 @@ type rpcError struct {
 const (
 	codeParse            = -32700
 	codeInvalidRequest   = -32600
+	codeInvalidParams    = -32602
 	codeMethodNotFound   = -32601
 	codeInternal         = -32603
 	codeResourceNotFound = -32002
@@ -430,7 +434,12 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 			}
 			messages, err := pr.Render(ctx, Request{Arguments: arguments, subject: subject})
 			if err != nil {
-				return answer(map[string]any{"messages": []any{}, "description": err.Error()})
+				// A conversation that was not built is a failure of the call.
+				// Carried as a result with no messages it is indistinguishable
+				// from a prompt that had nothing to say, so a refusal reads as
+				// an empty conversation -- which is the answer this server
+				// refuses to give for a tool, given for a prompt instead.
+				return refuse(codeInternal, err.Error())
 			}
 			out := make([]map[string]any, 0, len(messages))
 			for _, m := range messages {
@@ -440,7 +449,10 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 			}
 			return answer(map[string]any{"description": pr.Description(), "messages": out})
 		}
-		return answer(map[string]any{"messages": []any{}, "description": "no prompt called " + name})
+		// The name is what the client sent, so it is the one thing it can
+		// correct. An empty conversation names nothing to correct: the model
+		// reads a prompt that exists and is empty, and asks again.
+		return refuse(codeInvalidParams, "there is no prompt called "+name)
 
 	default:
 		if len(req.ID) == 0 {

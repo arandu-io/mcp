@@ -111,13 +111,14 @@ transport already knows and this file must not learn.
 
 ## The error codes, and which failures are not codes
 
-Five constants. `-32603` is also spelt out in bytes in `encode`, because there
+Six constants. `-32603` is also spelt out in bytes in `encode`, because there
 it is the answer to marshalling having failed:
 
 ```
 -32700  the message is not JSON
 -32600  it is JSON but not a request the server can carry
 -32601  the method is not implemented
+-32602  the request arrived and what it asked for cannot be used: a prompt nobody declared
 -32603  a call that was read and failed inside, or encoding the answer failed
 -32002  resources/read named a URI no resource answers to
 ```
@@ -141,9 +142,15 @@ the `2024-11-05` resources page lists under its error handling —
 `TestAReadThatDidNotHappenIsNotAnsweredAsTheResourceItself`,
 `TestAReadThatFailedIsStillSilentWhenItWasANotification`.
 
-**`prompts/get`** still carries the failure as words: a `Render` that fails is
-answered as no messages with the error as the description, and nothing in the
-envelope marks it as a failure.
+**`prompts/get`** answers a conversation, and a conversation with no turns in it
+is one the model reads as there being nothing to say. So a prompt nobody
+declared is `-32602`, which names the one thing the client can correct, and a
+`Render` that returned an error is `-32603` with its text as the message. An
+empty `messages` keeps one meaning: a `Render` that returned no messages and no
+error. The prompts page of the same revision lists those two codes for those
+two failures — `TestAPromptNobodyDeclaredIsAFailureAndNotAnEmptyConversation`,
+`TestAPromptThatWasNotRenderedIsNotAnsweredWithAnEmptyConversation`,
+`TestAnEmptyConversationIsWhatAPromptThatMeantItAnswers`.
 
 The two nearby wrong messages each have a test: "the message is not JSON" is
 reserved for bytes that really are not
