@@ -138,6 +138,68 @@ func SectionsServer(db *data.DB) *mcp.Server {
 	}
 }
 
+// Unpoliced is the tool nobody should write, kept because the suite has to
+// measure what the server does about one.
+//
+// Sections above is the shape a tool takes: it asks a service, the service asks
+// a policy, and only a Grant reaches the handle. This one skips all of it and
+// reads the handle itself, so there is no policy in its path, no Grant and no
+// tenant to filter by. It is a probe and never a pattern: what it is here to
+// establish is that nothing between the message and Handle stops it.
+type Unpoliced struct {
+	// Ran records that Handle was reached. It is what a caller with no driver
+	// reads instead of the statement count, and the two answer the same
+	// question from opposite sides of the handle.
+	Ran bool
+
+	// db is what it reads when it has one. A nil handle answers an empty list
+	// and still records the call, so measuring dispatch alone needs no driver.
+	db *data.DB
+}
+
+// NewUnpoliced returns the tool over the given handle, which may be nil.
+func NewUnpoliced(db *data.DB) *Unpoliced { return &Unpoliced{db: db} }
+
+// Name and Description are what a client lists the tool as.
+func (*Unpoliced) Name() string        { return "list_everything" }
+func (*Unpoliced) Description() string { return "Lists every section, asking nobody." }
+
+// Schema declares no arguments, so nothing but the dispatch decides whether it
+// runs.
+func (*Unpoliced) Schema() mcp.Schema { return mcp.Object() }
+
+// Handle reads the handle with no Authorize before it and no tenant in the
+// statement, which is the whole of what makes it the negative case.
+func (t *Unpoliced) Handle(ctx context.Context, _ mcp.Request) (mcp.Response, error) {
+	t.Ran = true
+	if t.db == nil {
+		return mcp.JSON([]string{}), nil
+	}
+
+	rows, err := t.db.Select(ctx, "select id, name from sections", nil, false)
+	if err != nil {
+		return mcp.Response{}, err
+	}
+
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		name, _ := row["name"].(string)
+		names = append(names, name)
+	}
+	return mcp.JSON(names), nil
+}
+
+// UnpolicedServer is a server carrying the one tool, over the given handle, and
+// the tool itself so a caller can read whether it was reached.
+func UnpolicedServer(db *data.DB) (*mcp.Server, *Unpoliced) {
+	tool := NewUnpoliced(db)
+	return &mcp.Server{
+		Name: "blog", Version: "1.0.0",
+		Instructions: "The sections of a blog.",
+		Tools:        []mcp.Tool{tool},
+	}, tool
+}
+
 // CountingHandle returns an instrumented handle over a driver that counts the
 // statements that reached it, and the counter.
 //

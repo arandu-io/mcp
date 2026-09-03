@@ -145,6 +145,79 @@ func TestAToolRefusedOverTheWireProtocolRunsNoStatement(t *testing.T) {
 	}
 }
 
+// The other half of the boundary, and the one the package doc is about: a tool
+// that asks no policy is dispatched, and its statement reaches the handle.
+//
+// Everything above measures a refusal that a service produced. This measures
+// what the Server contributes on its own, which is nothing: it validates the
+// arguments, hands Handle the Subject, and a tool that never calls Authorize
+// runs. The statement count is what says so from below the handle, and the
+// subject is the one nobody filled in, so there is no identity to credit the
+// dispatch to either.
+//
+// It is here as a lock rather than as an approval. A change that makes the
+// Server refuse this tool fails this test, and the package doc has to be
+// rewritten in the same commit -- which is the point of measuring it at all.
+func TestAToolThatAsksNoPolicyIsDispatchedAndReachesTheHandle(t *testing.T) {
+	db, statements := helpers.CountingHandle(t)
+	server, tool := helpers.UnpolicedServer(db)
+	ctx, collector := collected(t)
+
+	answer := server.Call(ctx, security.Subject{}, "list_everything", nil)
+
+	if answer.IsError {
+		t.Fatalf("the server refused a tool that asks no policy: %s", answer.Text)
+	}
+	if !tool.Ran {
+		t.Fatal("the tool answered without its handler being reached")
+	}
+	if statements.Count() != 1 {
+		t.Fatalf("a tool with no policy in its path ran %d statements, want 1", statements.Count())
+	}
+	if collector.QueryCount() != 1 {
+		t.Fatalf("the collector recorded %d queries, want 1", collector.QueryCount())
+	}
+
+	statement, args := statements.Last()
+	if strings.Contains(statement, "tenant_id") || len(args) != 0 {
+		t.Fatalf("the probe is not the unfiltered read it is meant to be: %q with %v", statement, args)
+	}
+}
+
+// The same measurement over the wire format, because a second path to Handle
+// that enforced something the first does not would make the doc true of one
+// transport and false of the other.
+func TestAToolThatAsksNoPolicyIsDispatchedOverTheWireProtocolToo(t *testing.T) {
+	db, statements := helpers.CountingHandle(t)
+	server, tool := helpers.UnpolicedServer(db)
+	ctx, _ := collected(t)
+
+	body := server.Handle(ctx, security.Subject{}, []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_everything"}}`))
+
+	var answer helpers.AnswerShape
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("the answer is not a response: %v", err)
+	}
+	if answer.Error != nil {
+		t.Fatalf("the dispatch became a transport error: %v", answer.Error)
+	}
+
+	var result struct {
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(answer.Result, &result); err != nil {
+		t.Fatalf("the result is not the shape tools/call carries: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("the protocol refused a tool that asks no policy: %s", answer.Result)
+	}
+	if !tool.Ran || statements.Count() != 1 {
+		t.Fatalf("the handler ran %v and %d statements arrived, want true and 1",
+			tool.Ran, statements.Count())
+	}
+}
+
 // The local transport, whose subject is declared where the server is
 // registered rather than read from a session. A message that names a tool the
 // declared subject may not call reaches the handle with nothing.
