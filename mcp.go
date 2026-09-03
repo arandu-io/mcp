@@ -4,22 +4,36 @@
 // declares tools it can call, resources it can read and prompts it can use, and
 // the client picks. This package is the Arandu side of that.
 //
-// # Every tool carries a Grant
+// # What this package checks, and what it does not
 //
-// A tool reaches data, and every path to data in this framework carries a
-// security.Grant. So does this one.
+// A tool reaches data, and a tool is written the way a controller is: it asks a
+// service, the service asks a policy, and the security.Grant the policy issues
+// is what the repository signature below it requires.
 //
 //	func (t Invoices) Handle(ctx context.Context, r mcp.Request) (mcp.Response, error) {
 //		found, err := t.svc.List(ctx, r.Subject(), data.Query{Limit: 20})
 //		…
 //	}
 //
-// The Subject is on the Request and there is no way to call a service without
-// one. That is not politeness -- an MCP server is a program that hands a
-// language model the keys to an application, and the version of this package
-// where a tool queries the database directly would be the largest hole this
-// project could ship. A policy that refuses a tool refuses it for the same
-// reason it refuses a controller.
+// The Server does not verify that a tool did that. It checks the arguments
+// against the tool's schema, hands Handle the Subject the transport
+// established, and turns an error out of Handle into a failure the model reads.
+// It runs no policy of its own: a policy decides about a typed resource, and
+// Tool declares neither that type nor an action, so a server holding a slice of
+// tools has nothing to ask one about. A tool that skips the service and reads a
+// database handle itself is dispatched and answers.
+//
+// So the boundary is the service, and writing a tool that reaches past it is
+// not a style mistake -- an MCP server is a program that hands a language model
+// the keys to an application, and the tool that queries the database directly
+// is the largest hole this project could ship. A policy that refuses a tool
+// refuses it for the same reason it refuses a controller.
+//
+// What the Server does guarantee is narrower, and worth naming because a caller
+// can rely on it: the Subject is an unexported field read through
+// Request.Subject, so a tool cannot choose the identity it acts as; arguments
+// are checked before Handle runs; and a refusal arrives marked as one rather
+// than as an empty result.
 //
 // Where the Subject comes from is the transport's answer, and the two are
 // deliberately different:
