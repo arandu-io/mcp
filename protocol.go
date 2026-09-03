@@ -432,6 +432,15 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 			if pr.Name() != name {
 				continue
 			}
+			if problem := checkArguments(pr.Arguments(), arguments); problem != nil {
+				// Before Render, for the reason the tool schema runs before
+				// Handle: the messages it builds are what a model acts on next,
+				// so a conversation started from an argument nobody sent is
+				// started about the wrong thing -- and it arrives looking like
+				// a result, because it is one.
+				return refuse(codeInvalidParams, name+": "+problem.Error())
+			}
+
 			messages, err := pr.Render(ctx, Request{Arguments: arguments, subject: subject})
 			if err != nil {
 				// A conversation that was not built is a failure of the call.

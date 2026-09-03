@@ -159,9 +159,12 @@ service's error from `Read` rather than describing it in the text: text is
 answered as the resource.
 
 A `Prompt` is a conversation the application knows how to start: `Arguments()`
-declares what the client fills in, and `Render` builds `[]mcp.Message` with
-`mcp.User` and `mcp.Assistant`. The roles are the two strings the protocol
-carries and nothing else — `TestBothRolesAreSpeltTheWayTheProtocolCarriesThem`.
+declares what the client fills in, and a call is checked against it before
+`Render` runs — a required argument that was not sent, or one nobody declared,
+is refused with `-32602` (`TestAPromptIsNotRenderedFromArgumentsItDidNotDeclare`).
+`Render` builds `[]mcp.Message` with `mcp.User` and `mcp.Assistant`. The roles
+are the two strings the protocol carries and nothing else —
+`TestBothRolesAreSpeltTheWayTheProtocolCarriesThem`.
 A `Render` that returns an error is answered as the JSON-RPC error `-32603` with
 the error text as the message, and a prompt name nobody declared as `-32602`:
 neither is an empty conversation, which the model would read as there being

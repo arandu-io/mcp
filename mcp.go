@@ -41,7 +41,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/arandu-io/framework/security"
 )
@@ -168,6 +171,42 @@ type Argument struct {
 	Name        string
 	Description string
 	Required    bool
+}
+
+// checkArguments reports what is wrong with a call's arguments against what the
+// prompt declared, or nil if nothing is.
+//
+// It is what lets Render read an argument it marked required without testing
+// whether it arrived: without the check the argument reads as the empty string,
+// and the messages a model is about to act on are built from a value nobody
+// sent. An argument nobody declared is reported rather than dropped, for the
+// reason the tool schema reports one -- a model that invents a parameter and is
+// not told keeps inventing it.
+//
+// Every problem is reported at once and in a fixed order, so two runs of the
+// same wrong call produce the same message.
+func checkArguments(declared []Argument, args map[string]any) error {
+	var problems []string
+
+	known := make(map[string]bool, len(declared))
+	for _, a := range declared {
+		known[a.Name] = true
+		if _, present := args[a.Name]; !present && a.Required {
+			problems = append(problems, a.Name+" is required")
+		}
+	}
+
+	for name := range args {
+		if !known[name] {
+			problems = append(problems, name+" is not an argument of this prompt")
+		}
+	}
+
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
 }
 
 // Message is one turn of a prompt.

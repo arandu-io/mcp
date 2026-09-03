@@ -118,7 +118,8 @@ it is the answer to marshalling having failed:
 -32700  the message is not JSON
 -32600  it is JSON but not a request the server can carry
 -32601  the method is not implemented
--32602  the request arrived and what it asked for cannot be used: a prompt nobody declared
+-32602  the request arrived and what it asked for cannot be used: a prompt nobody
+        declared, or prompt arguments that do not match its declaration
 -32603  a call that was read and failed inside, or encoding the answer failed
 -32002  resources/read named a URI no resource answers to
 ```
@@ -151,6 +152,12 @@ error. The prompts page of the same revision lists those two codes for those
 two failures — `TestAPromptNobodyDeclaredIsAFailureAndNotAnEmptyConversation`,
 `TestAPromptThatWasNotRenderedIsNotAnsweredWithAnEmptyConversation`,
 `TestAnEmptyConversationIsWhatAPromptThatMeantItAnswers`.
+
+A prompt's arguments are checked against what it declared before `Render`
+runs, as a tool's are against its schema before `Handle`: a required one that
+was not sent and one nobody declared are both `-32602`, every problem named at
+once — `TestAPromptIsNotRenderedFromArgumentsItDidNotDeclare`,
+`TestAnOptionalPromptArgumentIsStillOptional`.
 
 The two nearby wrong messages each have a test: "the message is not JSON" is
 reserved for bytes that really are not

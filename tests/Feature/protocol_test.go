@@ -553,6 +553,79 @@ func TestAnEmptyConversationIsWhatAPromptThatMeantItAnswers(t *testing.T) {
 	}
 }
 
+// TestAPromptIsNotRenderedFromArgumentsItDidNotDeclare.
+//
+// The tool path refuses a call whose arguments do not match the schema, which
+// is what lets a tool read an argument without checking whether it arrived. A
+// prompt declares its arguments in the same message the client reads, and
+// nothing checked them: a required one that never came rendered as the empty
+// string, and one the model invented was handed straight through. The rendered
+// messages are what a model acts on next, so a prompt built from arguments
+// nobody sent is a conversation started about the wrong thing -- and it looks
+// like a result, because it is one.
+func TestAPromptIsNotRenderedFromArgumentsItDidNotDeclare(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, bad := range []struct {
+		about     string
+		arguments string
+		says      string
+	}{
+		{"a required argument that was not sent", `{}`, "slug"},
+		{"a required argument left out of a call that sent another", `{"style":"short"}`, "slug"},
+		{"an argument nobody declared", `{"slug":"a-post","style":"short"}`, "style"},
+	} {
+		answer := helpers.Conversations().Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
+				`"params":{"name":"summarise","arguments":`+bad.arguments+`}}`))
+
+		var out helpers.AnswerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("%s was answered with something that is not a response: %v", bad.about, err)
+			continue
+		}
+		if out.Error == nil {
+			t.Errorf("%s was rendered: %s", bad.about, answer)
+			continue
+		}
+		if out.Error.Code != helpers.CodeInvalidParams {
+			t.Errorf("%s was answered with %d, want %d", bad.about, out.Error.Code, helpers.CodeInvalidParams)
+		}
+		if !strings.Contains(out.Error.Message, bad.says) {
+			t.Errorf("%s was refused without naming the argument: %q", bad.about, out.Error.Message)
+		}
+	}
+
+	// A prompt declaring no arguments refuses one all the same: the check is
+	// about the declaration and not about there being one to compare against.
+	answer := helpers.Conversations().Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
+			`"params":{"name":"silent","arguments":{"slug":"a-post"}}}`))
+	if _, out := promptMessages(t, answer); out.Error == nil {
+		t.Errorf("a prompt declaring no arguments was sent one and rendered anyway: %s", answer)
+	}
+
+	// And a call that matches the declaration still renders from what it sent.
+	rendered := helpers.Conversations().Handle(context.Background(), who,
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
+			`"params":{"name":"summarise","arguments":{"slug":"a-post"}}}`))
+	if !strings.Contains(string(rendered), "Summarise a-post") {
+		t.Errorf("a call carrying exactly what the prompt declared was not rendered: %s", rendered)
+	}
+}
+
+// TestAnOptionalPromptArgumentIsStillOptional, so "required" stays a statement
+// about one argument rather than a way to refuse every call.
+func TestAnOptionalPromptArgumentIsStillOptional(t *testing.T) {
+	rendered := helpers.Everything().Handle(context.Background(), security.Subject{ID: "u1", Tenant: "t1"},
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
+			`"params":{"name":"summarise","arguments":{"slug":"a-post"}}}`))
+
+	if messages, out := promptMessages(t, rendered); out.Error != nil || len(messages) != 1 {
+		t.Errorf("a call carrying the required argument and no optional one was refused: %s", rendered)
+	}
+}
+
 // TestAPromptThatFailedIsStillSilentWhenItWasANotification.
 //
 // A failure is still an answer, and a notification gets none. Turning the new

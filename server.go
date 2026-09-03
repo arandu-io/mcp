@@ -97,12 +97,16 @@ func (s *Server) available() string {
 	return fmt.Sprintf("Available: %v", names)
 }
 
-// Validate reports what is wrong with the server itself.
+// Validate reports what is wrong with the server itself, every problem at once.
 //
-// It runs at boot rather than at the first call, because everything it checks is
-// a mistake in a declaration: two tools with one name, a tool with no
-// description, a schema field nobody named. A server that starts and answers
-// nonsense is worse than one that refuses to start.
+// Everything it checks is a mistake in a declaration rather than in a call: a
+// server with no name; a tool with no name, two tools with one name, a tool with
+// no description; a prompt with no name, two prompts with one name, a prompt
+// declaring an argument with no name or two arguments with one; a resource with
+// no URI, two resources at one URI. A server that starts and answers nonsense is
+// worse than one that refuses to start, so this belongs at boot. Local calls it
+// before serving anything; Web does not, so a server that is only mounted on a
+// route is checked by the code that boots it.
 func (s *Server) Validate() error {
 	var problems []string
 
@@ -123,6 +127,36 @@ func (s *Server) Validate() error {
 		if t.Description() == "" {
 			problems = append(problems, fmt.Sprintf("%s has no description: it is what the model reads to "+
 				"decide whether to call it, and a tool without one is called at random", t.Name()))
+		}
+	}
+
+	// A prompt is declared the same way and goes wrong the same way. Two with
+	// one name means which of them renders is the order of a slice; two
+	// arguments with one name means the client is told to send a member twice
+	// and only one of them can arrive; an argument with no name is one no call
+	// can carry, listed to the model regardless.
+	prompts := map[string]bool{}
+	for _, p := range s.Prompts {
+		switch {
+		case p.Name() == "":
+			problems = append(problems, "a prompt has no name")
+		case prompts[p.Name()]:
+			problems = append(problems, fmt.Sprintf("two prompts are called %q", p.Name()))
+		default:
+			prompts[p.Name()] = true
+		}
+
+		arguments := map[string]bool{}
+		for _, a := range p.Arguments() {
+			switch {
+			case a.Name == "":
+				problems = append(problems, fmt.Sprintf("%q declares an argument with no name", p.Name()))
+			case arguments[a.Name]:
+				problems = append(problems,
+					fmt.Sprintf("%q declares two arguments called %q", p.Name(), a.Name))
+			default:
+				arguments[a.Name] = true
+			}
 		}
 	}
 

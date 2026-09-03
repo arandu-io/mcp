@@ -150,8 +150,9 @@ and answers `isError=false`.
 If the server is only ever mounted on a route, call `Validate` yourself where
 the application boots and fail there. Everything it reports is a mistake in a
 declaration — a server with no name, a tool with no name, two tools with one
-name, a tool with no description, a resource with no URI, two resources at one
-URI — and a server that starts and answers nonsense is worse than one that
+name, a tool with no description, a prompt with no name, two prompts with one
+name, a prompt argument with no name or two with one, a resource with no URI,
+two resources at one URI — and a server that starts and answers nonsense is worse than one that
 refuses to start.
 
 ## No CLI command starts or describes a server
