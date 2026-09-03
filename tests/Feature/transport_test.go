@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arandu-io/framework/security"
 
@@ -22,6 +25,126 @@ import (
 // inputs small enough to mutate quickly. The size of a message is not that kind
 // of question: the answer is the same for every input and it only shows up at a
 // scale the fuzzer never reaches, so it is asked here, once, with a big one.
+
+// announced is a writer that reports each write on a channel, so a test can
+// wait for the serve loop to have answered before doing anything else. Waiting
+// on the answer is what puts the loop where the test needs it: blocked inside
+// the next read, with nothing coming.
+type announced struct{ wrote chan struct{} }
+
+// Write reports the write and keeps the bytes for nobody.
+func (w announced) Write(p []byte) (int, error) {
+	select {
+	case w.wrote <- struct{}{}:
+	default:
+	}
+	return len(p), nil
+}
+
+// TestCancellingTheContextEndsAServeBlockedInARead.
+//
+// The loop asked whether it should stop between messages, which is the one
+// moment it is never in when it matters: a stdio server spends its life blocked
+// in a read with nothing coming. Cancelling there did nothing at all, and the
+// serve ended when the other end sent EOF -- which a peer that has hung up,
+// crashed or simply gone quiet never does. What shuts down is then the process,
+// by whatever is impatient enough to kill it.
+func TestCancellingTheContextEndsAServeBlockedInARead(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("opening a pipe: %v", err)
+	}
+	t.Cleanup(func() { _ = writer.Close(); _ = reader.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	out := announced{wrote: make(chan struct{}, 4)}
+	done := make(chan error, 1)
+	go func() {
+		done <- mcp.Local(ctx, helpers.Everything(), security.Subject{ID: "u1", Tenant: "t1"}, reader, out)
+	}()
+
+	// One message through, so the loop is known to be past its own start and
+	// waiting on the read rather than on anything this test still holds.
+	if _, err := writer.WriteString(`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n"); err != nil {
+		t.Fatalf("writing to the pipe: %v", err)
+	}
+	select {
+	case <-out.wrote:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the serve never answered the first message")
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("a cancelled serve ended with %v, want the cancellation", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled serve was still waiting inside the read: nothing but EOF ends it, " +
+			"and a peer that has gone quiet never sends one")
+	}
+}
+
+// TestACancelledServeLeavesNothingRunning.
+//
+// Interrupting the read is the first half. The second is that whatever does the
+// interrupting is gone afterwards: a watcher per serve that outlives its serve
+// is a leak that only shows up in a process that opens many, which is the one
+// place it is hardest to find.
+func TestACancelledServeLeavesNothingRunning(t *testing.T) {
+	before := runtime.NumGoroutine()
+
+	for range 20 {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("opening a pipe: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- mcp.Local(ctx, helpers.Everything(), security.Subject{ID: "u1"}, reader, io.Discard)
+		}()
+
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a cancelled serve did not end")
+		}
+		_ = writer.Close()
+		_ = reader.Close()
+	}
+
+	// The goroutines being counted are other tests' as well, so the check is
+	// that the count comes back rather than that it never moved.
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > before+2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after := runtime.NumGoroutine(); after > before+2 {
+		t.Fatalf("20 cancelled serves left the goroutine count at %d, from %d", after, before)
+	}
+}
+
+// TestAStreamThatEndsIsNotACancellation, so interrupting the read is not a way
+// to report every shutdown as one.
+func TestAStreamThatEndsIsNotACancellation(t *testing.T) {
+	var out bytes.Buffer
+	err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"},
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`+"\n"), &out)
+
+	if err != nil {
+		t.Fatalf("a stream that ended reported %v", err)
+	}
+	if out.Len() == 0 {
+		t.Fatal("the message before the end of the stream was not answered")
+	}
+}
 
 // TestALineIsNotReadIntoUnboundedMemory.
 //

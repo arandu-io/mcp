@@ -90,9 +90,31 @@ func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.
 // parse error at the client, and it is the most common way a stdio server
 // appears broken while working -- so the logger is the framework's, which writes
 // to stderr.
+//
+// Cancelling the context ends the serve, including from inside the read it
+// spends its life in. Reaching that read means closing it, so a reader that can
+// be closed is closed on the way out: the alternative is a shutdown that waits
+// for an EOF, and a peer that has hung up, crashed or gone quiet never sends
+// one. A reader that is not a Closer cannot be interrupted, and there the serve
+// still ends at the next message boundary.
 func Local(ctx context.Context, s *Server, subject security.Subject, in io.Reader, out io.Writer) error {
 	if err := s.Validate(); err != nil {
 		return err
+	}
+
+	// The watcher ends with the serve, whichever way the serve ends. Without
+	// the second case it would outlive every serve that finished on its own,
+	// which is a goroutine per connection held by a context nobody will cancel.
+	if closer, ok := in.(io.Closer); ok {
+		finished := make(chan struct{})
+		defer close(finished)
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = closer.Close()
+			case <-finished:
+			}
+		}()
 	}
 
 	reader := bufio.NewReader(in)
@@ -104,6 +126,14 @@ func Local(ctx context.Context, s *Server, subject security.Subject, in io.Reade
 		}
 
 		line, oversized, err := readLine(reader, MaxMessage)
+
+		if err != nil && ctx.Err() != nil {
+			// The read ended because the shutdown above closed it, not because
+			// the peer said anything. What is reported is the cancellation:
+			// a closed file is what this function did, and naming it would send
+			// whoever reads the error looking for a broken pipe.
+			return ctx.Err()
+		}
 
 		switch {
 		case oversized:

@@ -126,14 +126,28 @@ through the reader's own buffer, so the stream is left at the start of the next
 message: a reader that gave up mid-line would read the remains of one message as
 many.
 
-`tests/Feature/transport_test.go` holds six tests and they are the whole of what
-guards this — `grep -c '^func Test' tests/Feature/transport_test.go` says 6.
-Read them before changing any of it:
+Six tests in `tests/Feature/transport_test.go` are the whole of what guards
+the bound. Read them before changing any of it:
 `TestALineIsNotReadIntoUnboundedMemory`, `TestABlankLineIsNotAMessage`,
 `TestAnOversizedMessageIsRefusedAndTheStreamResyncs`,
 `TestABodyOverTheLimitIsRefusedRatherThanTruncated`,
 `TestAMessageWithinTheLimitStillArrives` and
 `TestALargeMessageOverAPipeStillArrives`.
+
+## Cancelling a stdio serve
+
+A stdio server spends its life blocked in a read with nothing coming, so asking
+whether to stop between messages is asking at the one moment it never is.
+`Local` closes its input when the context is cancelled, if the input is an
+`io.Closer` — `os.Stdin` is, and so is a pipe — which is the only way to reach
+a blocked read, and it returns the cancellation rather than the closed file it
+did to itself. A peer that has hung up, crashed or gone quiet never sends the
+EOF the loop would otherwise wait for. An input that is not a Closer still ends
+at the next message boundary. The goroutine that does the closing ends with the
+serve however the serve ends, and a stream that simply ends returns nil —
+`TestCancellingTheContextEndsAServeBlockedInARead`,
+`TestACancelledServeLeavesNothingRunning`,
+`TestAStreamThatEndsIsNotACancellation`.
 
 ## Validate runs on one of the two
 
