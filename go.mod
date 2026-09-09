@@ -5,7 +5,7 @@ go 1.26
 require github.com/arandu-io/framework v0.42.1
 
 require (
-	github.com/arandu-io/hesape v0.29.0 // indirect
+	github.com/arandu-io/hesape v0.36.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )
