@@ -143,11 +143,11 @@ second enforcement point in this module and no way to write one by accident.
 
 Both are worth knowing before you repeat them.
 
-**`aru mcp:start` and `aru mcp:list` do not exist.** `transport.go:85` says
-`Local` "is `aru mcp:start`" and `transport.go:175` says `Describe` is "for
-`aru mcp:list`"; the CLI has neither. `aru help` lists its commands and none of
-them is under `mcp:`. Until one is, `mcp.Start` is called by the application
-and `mcp.Describe` writes to whatever `io.Writer` it is handed.
+**There is no CLI command that starts or describes a server.** The doc comments
+named two once and no longer do. The CLI has neither: `aru help` lists its
+commands and none of them is under a namespace for this. So stdio is started by
+the application calling `mcp.Start`, and `mcp.Describe` writes to whatever
+`io.Writer` it is handed.
 
 **`Server.Validate` runs on one of the two transports.** `Local` calls it and
 refuses to serve when it fails; `Web` does not call it at all. So "a tool with

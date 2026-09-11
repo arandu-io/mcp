@@ -1,6 +1,6 @@
 ---
 name: mcp-transport
-description: Mount an mcp.Server so something can reach it — over HTTP for a remote client, or over stdio for an assistant on the same machine. Use when the request mentions "mount the MCP server", "the route for MCP", "expose the server", "stdio server", "connect a desktop assistant", "my MCP server is not reachable", "the client hangs", "nothing comes back", "the client says the server crashed", "aru mcp:start", "where does the subject come from", "session", "guest subject", "MaxMessage", or "message too large". Covers mcp.Web and mcp.Local, why the subject is an argument on one and the session on the other, the 202 a notification gets, the one-megabyte bound both share, why Validate runs on only one of them, and why a single log line on stdout breaks a working server.
+description: Mount an mcp.Server so something can reach it — over HTTP for a remote client, or over stdio for an assistant on the same machine. Use when the request mentions "mount the MCP server", "the route for MCP", "expose the server", "stdio server", "connect a desktop assistant", "my MCP server is not reachable", "the client hangs", "nothing comes back", "the client says the server crashed", "how do I start it from the CLI", "where does the subject come from", "session", "guest subject", "MaxMessage", or "message too large". Covers mcp.Web and mcp.Local, why the subject is an argument on one and the session on the other, the 202 a notification gets, the one-megabyte bound both share, why Validate runs on only one of them, and why a single log line on stdout breaks a working server.
 license: MIT
 ---
 
@@ -127,11 +127,10 @@ declaration — a tool with no name, two tools with one name, a tool with no
 description, two resources at one URI — and a server that starts and answers
 nonsense is worse than one that refuses to start.
 
-## `aru mcp:start` does not exist
+## No CLI command starts or describes a server
 
-`transport.go:85` says `Local` "is `aru mcp:start`" and `transport.go:175` says
-`Describe` is "for `aru mcp:list`". The CLI has neither: `aru help` lists its
-commands and none is under `mcp:`. Until one is:
+The doc comments named two once and no longer do, and the CLI never had either:
+`aru help` lists its commands and none is under a namespace for this. So:
 
 - stdio is started by the application calling `mcp.Start`, from a console
   command of its own or from `main`;
