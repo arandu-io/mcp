@@ -28,6 +28,8 @@ server := &mcp.Server{
 	Tools:        []mcp.Tool{ListPosts{svc}, PublishPost{svc}},
 }
 
+// Registered on the router that CSRFProtect already guards, like every other
+// POST. A cookie-authenticated /mcp is never exempted from it.
 r.Action("POST", "/mcp", mcp.Web(server, sessions, cfg.Auth.Tenant)).Name("mcp")
 ```
 
@@ -54,7 +56,17 @@ Anything else is `200` with `Content-Type: application/json` and the encoded
 answer.
 
 **Mount it behind whatever middleware the application already uses to establish
-a session.** `mcp.Web` authenticates nobody; it reads what is there.
+a session — and that includes `CSRFProtect`.** `mcp.Web` authenticates nobody;
+it reads what is there, and what is there is the session cookie, which a
+browser attaches to a request any other site can make it send. A
+cookie-authenticated `/mcp` that a tool can change data through is exactly the
+request CSRF protection exists for, so it is never exempted from
+`CSRFProtect`, not even "just for the assistant". A remote client that signs in
+with the session sends that session's token in the `X-CSRF-Token` header, as
+an HTMX request does. A client that cannot hold one does not use the cookie at
+all: it authenticates with a bearer credential, through a handler of the
+application's own that verifies the credential, resolves the subject from it
+and calls `Server.Handle(ctx, subject, body)`.
 
 ## Over stdio
 
