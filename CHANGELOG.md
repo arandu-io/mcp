@@ -1,5 +1,9 @@
 # Release Notes
 
+## [v0.3.2](https://github.com/arandu-io/mcp/compare/v0.3.1...v0.3.2) - 2026-09-17
+
+**Full Changelog**: https://github.com/arandu-io/mcp/compare/v0.3.1...v0.3.2
+
 ## [v0.3.1](https://github.com/arandu-io/mcp/compare/v0.3.0...v0.3.1) - 2026-09-09
 
 **Full Changelog**: https://github.com/arandu-io/mcp/compare/v0.3.0...v0.3.1
