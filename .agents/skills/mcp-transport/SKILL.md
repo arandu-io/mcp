@@ -116,19 +116,23 @@ stream of newlines into as much output as the other end cares to ask for
 parse error at the client, and it is the most common way a working stdio server
 appears broken.
 
-`mcp.Start` logs one line before serving, "mcp: serving over stdio", through
-`observability.Log(ctx)` at `transport.go:170`: the logger the context carries,
-or `slog.Default()` when it carries none. `slog.Default()` writes to stderr. The
-framework's root logger does not: `observability.NewLogger`, which is what
-`Application.Logger()` returns, writes to stdout. So a context carrying that
-logger, or a process that installed it with `slog.SetDefault`, puts the line on
-the pipe ahead of the first answer. Measured: with `context.Background()` the
-line went to stderr as text; with
-`observability.WithLogger(ctx, observability.NewLogger("production", slog.LevelInfo))`
-it went to stdout as a JSON object, which the client reads as a message.
+`mcp.Start` logs to `os.Stderr`, through a logger of its own, and serves with
+that logger in the context in place of the one it was handed, so a tool and the
+service under it that log through `hlog.For(ctx)` write to stderr as well. It
+has to: the framework's root logger, `hlog.New`, writes to stdout, and the
+context an application hands `Start` usually carries it. Measured before the
+change, with `hlog.Into(ctx, hlog.New("production", slog.LevelInfo))`: the line
+"mcp: serving over stdio" went to stdout as a JSON object ahead of the first
+answer, and a tool's log line went beside its own answer — two messages a
+client cannot parse. `TestNothingButAnswersReachesStdout` serves the process's
+real stdin and stdout with that logger on the context and finds only answers on
+stdout and both lines on stderr.
 
-Hand `Start` a context that carries no logger, or one built on stderr. If you
-add output of your own, it goes to stderr too.
+What `Start` cannot reach is a package-level logger: a line written with
+`slog.Info` after `slog.SetDefault` pointed the default at stdout still lands
+there. `mcp.Local` takes the two streams and the context as they are, and logs
+nothing itself; when the log has to go somewhere other than stderr, that is
+the one to call.
 
 ## The bound both share
 
@@ -209,11 +213,12 @@ Work through it in this order; each step rules out one layer.
 1. **A notification gets no answer, and that is correct.** A message with no
    `id` is answered by silence over stdio and by `202` over HTTP. If the client
    is waiting, the client sent no id.
-2. **Something else is on stdout.** A print, a dependency's logger, or
-   `mcp.Start`'s own line when its context carries the framework's root logger
-   (see above). One line is enough to make every answer unparseable. A panic
-   trace is not one of these: the runtime writes it to stderr, so a server that
-   died leaves stdout empty rather than corrupt.
+2. **Something else is on stdout.** A print; a logger that is not the
+   context's — the default after `slog.SetDefault` pointed it at stdout, or a
+   dependency's own; or, under `mcp.Local`, the root logger on the context it
+   was handed (see above). One line is enough to make every answer
+   unparseable. A panic trace is not one of these: the runtime writes it to
+   stderr, so a server that died leaves stdout empty rather than corrupt.
 3. **The message is over a megabyte.** `413` on HTTP, and on the pipe a
    `-32600` naming no id, because the id was inside the part that was refused.
 4. **No subject reached the route.** Over HTTP that is a `401` before the

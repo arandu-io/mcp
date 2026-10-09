@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -110,16 +111,13 @@ func unauthenticated() error {
 	}
 }
 
-// Local serves the server over stdin and stdout.
+// Local serves the server over the two streams it is given.
 //
-// It is what a client on the same machine starts.
-// One message per line, which is how the protocol frames itself on a pipe, and
-// no message longer than MaxMessage.
-//
-// Nothing is ever written to stdout except an answer. A log line there is a
-// parse error at the client, and it is the most common way a stdio server
-// appears broken while working -- so the logger is the framework's, which writes
-// to stderr.
+// It is what a client on the same machine talks to: one message per line, which
+// is how the protocol frames itself on a pipe, and no message longer than
+// MaxMessage. Nothing is written to out except an answer. Local itself logs
+// nothing; what the tools log goes wherever the context's logger writes, which
+// is the caller's to choose -- Start chooses stderr.
 //
 // Cancelling the context ends the serve, including from inside the read it
 // spends its life in. Reaching that read means closing it, so a reader that can
@@ -225,11 +223,25 @@ func readLine(r *bufio.Reader, limit int) ([]byte, bool, error) {
 	}
 }
 
-// Start is Local over the process's own stdin and stdout.
+// Start is Local over the process's own stdin and stdout, logging to stderr.
+//
+// On stdio, stdout is the protocol channel: a log line there is read by the
+// client as a message it cannot parse, and it is the most common way a stdio
+// server appears broken while working. The application's root logger writes to
+// stdout, and the context an application hands Start usually carries it. So
+// Start logs through a logger of its own on os.Stderr, and serves with that
+// logger in the context in place of the one it was handed, so that a tool, and
+// the service under it, logging through the context write to stderr too.
+//
+// What it does not reach is a package-level logger: a line written with
+// slog.Info after slog.SetDefault pointed the default at stdout still lands
+// there. Use Local with streams and a context of your own when the log has to
+// go somewhere else.
 func Start(ctx context.Context, s *Server, subject auth.Subject) error {
-	hlog.For(ctx).Info("mcp: serving over stdio",
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("mcp: serving over stdio",
 		"server", s.Name, "tools", len(s.Tools), "subject", subject.ID)
-	return Local(ctx, s, subject, os.Stdin, os.Stdout)
+	return Local(hlog.Into(ctx, logger), s, subject, os.Stdin, os.Stdout)
 }
 
 // Describe prints what a server offers to out.
