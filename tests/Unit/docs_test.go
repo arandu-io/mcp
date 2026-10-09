@@ -27,7 +27,7 @@ import (
 // server. A document saying what it is, or that it does not exist yet, is
 // right to name it, and the check used to refuse that sentence along with the
 // promise it was written for.
-var namespacedCommand = regexp.MustCompile(`aru mcp:[a-z]`)
+var namespacedCommand = regexp.MustCompile(`aru mcp:[a-z][a-z-]*`)
 
 // TestNoDocumentPromisesACommandThatStartsOrDescribesAServer reads every
 // document and every Go file this module ships.
