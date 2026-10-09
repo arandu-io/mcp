@@ -192,10 +192,10 @@ name, a prompt argument with no name or two with one, a resource with no URI,
 two resources at one URI — and a server that starts and answers nonsense is worse than one that
 refuses to start.
 
-## No CLI command starts or describes a server
+## No CLI command starts or describes an application's server
 
-The doc comments named two once and no longer do, and the CLI never had either:
-`aru help` lists its commands and none is under a namespace for this. So:
+The doc comments named two once, under an `mcp:` namespace, and no longer do;
+the CLI never had either. So:
 
 - stdio is started by the application calling `mcp.Start`, from a console
   command of its own or from `main`;
@@ -204,7 +204,11 @@ The doc comments named two once and no longer do, and the CLI never had either:
   any — to any `io.Writer`. `TestDescribeNamesEverythingAServerOffers` is what
   holds its shape.
 
-Do not put either command in an example, a README or a comment.
+Do not put either command in an example, a README or a comment —
+`TestNoDocumentPromisesACommandThatStartsOrDescribesAServer` reads every
+document and Go file here for the namespace. `aru mcp` on its own is the
+server the CLI is to give a developer's own assistant, for the CLI's tools; it
+is not a way to start yours, and aru v0.61.0 does not ship it.
 
 ## When nothing comes back
 

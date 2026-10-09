@@ -2,8 +2,12 @@ package unit
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -13,17 +17,155 @@ import (
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
 
-func TestPublicDocumentationDoesNotPromiseUnregisteredAruMCPCommands(t *testing.T) {
+// namespacedCommand matches a CLI command under an mcp: namespace -- the
+// aru mcp:start and aru mcp:list the doc comments once promised, and that no
+// version of the CLI ever registered.
+//
+// It does not match aru mcp on its own. That is a different command: the
+// server the CLI gives a developer's own assistant, which serves the CLI's
+// tools through this library and is not a way to start an application's
+// server. A document saying what it is, or that it does not exist yet, is
+// right to name it, and the check used to refuse that sentence along with the
+// promise it was written for.
+var namespacedCommand = regexp.MustCompile(`aru mcp:[a-z]`)
+
+// TestNoDocumentPromisesACommandThatStartsOrDescribesAServer reads every
+// document and every Go file this module ships.
+//
+// The check read two files once, and the false claim lived in the two it did
+// not read. So it reads the tree, less the suite, which has to spell the
+// pattern to test it.
+func TestNoDocumentPromisesACommandThatStartsOrDescribesAServer(t *testing.T) {
 	root := moduleRoot(t)
-	for _, name := range []string{"README.md", "transport.go"} {
-		body, err := os.ReadFile(filepath.Join(root, name))
+
+	read := 0
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("reading %s: %v", name, err)
+			return err
 		}
-		if strings.Contains(string(body), "aru mcp:") {
-			t.Errorf("%s promises an Aru MCP command that no command registry provides", name)
+		name := d.Name()
+		if d.IsDir() {
+			if name == ".git" || name == "tests" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		read++
+		if found := namespacedCommand.FindString(string(body)); found != "" {
+			t.Errorf("%s names %q, a command no version of the CLI registered", rel(root, path), found)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the module: %v", err)
+	}
+	if read == 0 {
+		t.Fatal("no document was read, so this test cannot fail")
+	}
+}
+
+// TestTheCheckRefusesThePromiseAndNotTheCommand pins both edges of the pattern
+// against the sentences it exists to tell apart.
+func TestTheCheckRefusesThePromiseAndNotTheCommand(t *testing.T) {
+	for sentence, refused := range map[string]bool{
+		"Local is `aru mcp:start`.":                          true,
+		"Describe is for aru mcp:list.":                      true,
+		"`aru mcp` serves the CLI's tools to the developer.": false,
+		"aru mcp: the developer's server, not yours.":        false,
+		"There is no aru mcp command in this release.":       false,
+	} {
+		if got := namespacedCommand.MatchString(sentence); got != refused {
+			t.Errorf("%q: refused %v, want %v", sentence, got, refused)
 		}
 	}
+}
+
+// toolMethods, resourceMethods and promptMethods are the method sets of the
+// three interfaces an application implements.
+var (
+	toolMethods     = []string{"Name", "Description", "Schema", "Handle"}
+	resourceMethods = []string{"URI", "Name", "Description", "MimeType", "Read"}
+	promptMethods   = []string{"Name", "Description", "Arguments", "Render"}
+)
+
+// TestThisPackageShipsNoTool.
+//
+// A tool here would be a tool with an opinion about somebody else's domain, and
+// the same goes for an MCP resource or a prompt: this module only knows how to
+// call one as the subject that asked. The check reads the methods every type in
+// the package declares, so a type that grows the method set of one of the three
+// interfaces fails here, whatever it is called.
+func TestThisPackageShipsNoTool(t *testing.T) {
+	root := moduleRoot(t)
+
+	files, err := filepath.Glob(filepath.Join(root, "*.go"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("the package has no Go file to read: %v", err)
+	}
+
+	methods := map[string]map[string]bool{}
+	fset := token.NewFileSet()
+	for _, path := range files {
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", rel(root, path), err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 {
+				continue
+			}
+			receiver := receiverType(fn.Recv.List[0].Type)
+			if methods[receiver] == nil {
+				methods[receiver] = map[string]bool{}
+			}
+			methods[receiver][fn.Name.Name] = true
+		}
+	}
+	if len(methods) == 0 {
+		t.Fatal("no method was read, so this test cannot fail")
+	}
+
+	for receiver, set := range methods {
+		for kind, want := range map[string][]string{
+			"Tool": toolMethods, "Resource": resourceMethods, "Prompt": promptMethods,
+		} {
+			if hasAll(set, want) {
+				t.Errorf("%s implements %s: this module ships none, and a %s belongs to the application whose domain it is about",
+					receiver, kind, kind)
+			}
+		}
+	}
+}
+
+// receiverType names the type a method is declared on, pointer or not.
+func receiverType(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.StarExpr:
+		return receiverType(e.X)
+	case *ast.IndexExpr:
+		return receiverType(e.X)
+	case *ast.Ident:
+		return e.Name
+	}
+	return ""
+}
+
+// hasAll reports whether set holds every name in want.
+func hasAll(set map[string]bool, want []string) bool {
+	for _, name := range want {
+		if !set[name] {
+			return false
+		}
+	}
+	return true
 }
 
 // The three strings the package doc is held to, all of them about the same

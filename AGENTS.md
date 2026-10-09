@@ -145,11 +145,17 @@ second enforcement point in this module and no way to write one by accident.
 
 Both are worth knowing before you repeat them.
 
-**There is no CLI command that starts or describes a server.** The doc comments
-named two once and no longer do. The CLI has neither: `aru help` lists its
-commands and none of them is under a namespace for this. So stdio is started by
-the application calling `mcp.Start`, and `mcp.Describe` writes to whatever
-`io.Writer` it is handed.
+**There is no CLI command that starts or describes an application's server.**
+The doc comments named two once, under an `mcp:` namespace, and no longer do;
+the CLI never had either, and `tests/Unit/docs_test.go` refuses the namespace in
+every document here. So stdio is started by the application calling
+`mcp.Start`, and `mcp.Describe` writes to whatever `io.Writer` it is handed.
+
+`aru mcp` on its own is a different command, and the check lets it through on
+purpose: it is the server the CLI is to give a developer's own assistant,
+serving the CLI's tools — the doctor, the project map — through this library.
+It does not start an application's server, and it is not in a released CLI
+yet: `aru help` from aru v0.61.0 names no mcp command at all.
 
 **`Server.Validate` runs on one of the two transports.** `Local` calls it and
 refuses to serve when it fails; `Web` does not call it at all. So "a tool with
