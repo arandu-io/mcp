@@ -140,10 +140,22 @@ A `Resource` is something the client reads by URI: `URI`, `Name`,
 directly, so the same rule applies — it goes to the service, not to a query.
 Two resources at one URI are refused at boot.
 
-One thing to know before declaring a `MimeType` other than text: `resources/read`
-answers `"mimeType": "text/plain"` unconditionally at `protocol.go:362`, while
-`resources/list` reports what the resource declares. A resource that says it is
-JSON is listed as JSON and read back as plain text. Changing that is a
+A resource is the same type listed and read. `resources/read` looks the
+resource up by URI and answers `"mimeType": mime`, taken through the same
+default the listing uses, so an empty `MimeType` is `text/plain` in both
+(`protocol.go:357-375`). A URI no resource answers to reads as `text/plain`,
+because what comes back is the refusal —
+`TestAResourceIsTheSameTypeListedAndRead`,
+`TestAURINobodyAnswersToIsStillReadAsText`.
+
+One edge before declaring a type other than text: a `Read` that returns an
+error is answered as content, not as a failure. `resources/read` carries no
+`isError`, and the error text goes out under the type the resource declares.
+Measured with a resource declaring `application/json` whose `Read` returned an
+error: the answer was `"mimeType":"application/json"` with the text
+`blog://manifest.json: manifest.read is not allowed for this subject`. A client
+that parses by the declared type is handed a refusal it cannot parse, and a
+model reading it gets words rather than a marked failure. Changing that is a
 `mcp-protocol` job.
 
 A `Prompt` is a conversation the application knows how to start: `Arguments()`

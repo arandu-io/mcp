@@ -30,7 +30,7 @@ Eight requests and one notification, in the order the switch answers them:
 | `tools/list` | `tools`: `name`, `description`, `inputSchema` |
 | `tools/call` | `content` as one text part, and `isError` |
 | `resources/list` | `resources`: `uri`, `name`, `description`, `mimeType` |
-| `resources/read` | `contents` |
+| `resources/read` | `contents`: one part, with `uri`, `mimeType` and `text` |
 | `prompts/list` | `prompts`: `name`, `description`, `arguments` |
 | `prompts/get` | `description` and `messages` |
 
@@ -224,13 +224,28 @@ harness means comparing the two ids as bytes, or decoding with a
   opinion about the other.
 - **Anything read from a message that decides who is asking.** See above.
 
-## One inconsistency already in the file
+## One inconsistency still in the file
 
-`resources/read` writes `"mimeType": "text/plain"` unconditionally at
-`protocol.go:362`, while `resources/list` reports `mimeOr(r.MimeType())` at
-`protocol.go:352`. A resource declaring `application/json` is therefore listed
-as JSON and read back as plain text, and `Resource.MimeType`'s own doc comment
-says it "is what the content is". Fixing it means calling `mimeOr` on the
-resource in the read branch too — which needs the `Resource` in hand rather than
-just the URI, so `Server.Read` returns only a `Response` today. It is a small
-change with a signature in it, so propose it before writing it.
+A resource is the same type listed and read. `resources/read` looks the
+resource up by URI and answers `"mimeType": mime`, read through the same
+`mimeOr` default that `resources/list` uses (`protocol.go:357-375`). A URI no
+resource answers to reads as `text/plain`, because what comes back then is the
+refusal. `TestAResourceIsTheSameTypeListedAndRead` pins the first — one
+resource declaring `application/json`, one leaving the type empty — and
+`TestAURINobodyAnswersToIsStillReadAsText` the second.
+
+What is still uneven is the failure. `Server.Read` answers a `Read` that
+returned an error with `IsError` set, and the read branch carries only
+`out.Text`, so the refusal goes out under the type the resource declares.
+Measured with a resource declaring `application/json` whose `Read` returned an
+error:
+
+```
+{"jsonrpc":"2.0","id":1,"result":{"contents":[{"mimeType":"application/json","text":"blog://manifest.json: manifest.read is not allowed for this subject","uri":"blog://manifest.json"}]}}
+```
+
+A client that parses by the declared type is handed a refusal it cannot parse.
+Fixing it is a choice between labelling a failed read `text/plain` and
+answering it as a JSON-RPC error. The second changes what a client sees for
+every refused read, so propose it before writing it. No test pins either answer
+today.
