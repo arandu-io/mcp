@@ -27,14 +27,14 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/arandu-io/framework/data"
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
+	"github.com/arandu-io/hesape/database"
 
 	"github.com/arandu-io/mcp"
 )
 
 // SectionList is the action the policy below is asked about.
-const SectionList security.Action = "section.list"
+const SectionList auth.Action = "section.list"
 
 // EditorRole is what SectionPolicy looks for. A subject without it is refused.
 const EditorRole = "editor"
@@ -56,7 +56,7 @@ type Section struct {
 type SectionPolicy struct{}
 
 // Can answers whether the subject may perform the action on the section.
-func (SectionPolicy) Can(_ context.Context, s security.Subject, a security.Action, _ Section) error {
+func (SectionPolicy) Can(_ context.Context, s auth.Subject, a auth.Action, _ Section) error {
 	for _, role := range s.Roles {
 		if role == EditorRole {
 			return nil
@@ -70,10 +70,10 @@ func (SectionPolicy) Can(_ context.Context, s security.Subject, a security.Actio
 // It holds the handle and nothing else, and every method on it asks the policy
 // before it reads the handle. The tenant is never a parameter: it is taken off
 // the Grant the policy produced, so a caller has no way to name one.
-type SectionService struct{ db *data.DB }
+type SectionService struct{ db *database.DB }
 
 // NewSectionService returns a service over the given handle.
-func NewSectionService(db *data.DB) *SectionService { return &SectionService{db: db} }
+func NewSectionService(db *database.DB) *SectionService { return &SectionService{db: db} }
 
 // List returns the names of the sections the subject may see.
 //
@@ -81,15 +81,15 @@ func NewSectionService(db *data.DB) *SectionService { return &SectionService{db:
 // Grant exists. A refusal returns before the handle is touched at all, so there
 // is no statement to filter and no result to discard -- which is the difference
 // between a refusal and an empty page.
-func (s *SectionService) List(ctx context.Context, sub security.Subject) ([]string, error) {
-	g, err := security.Authorize(ctx, SectionPolicy{}, sub, SectionList, Section{})
+func (s *SectionService) List(ctx context.Context, sub auth.Subject) ([]string, error) {
+	g, err := auth.Authorize(ctx, SectionPolicy{}, sub, SectionList, Section{})
 	if err != nil {
 		return nil, err
 	}
 
 	rows, err := s.db.Select(ctx,
 		"select id, name from sections where tenant_id = ?",
-		[]any{security.Tenant(g)}, false)
+		[]any{auth.Tenant(g)}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (t *Sections) Handle(ctx context.Context, r mcp.Request) (mcp.Response, err
 }
 
 // SectionsServer is a server carrying the one tool, over the given handle.
-func SectionsServer(db *data.DB) *mcp.Server {
+func SectionsServer(db *database.DB) *mcp.Server {
 	return &mcp.Server{
 		Name: "blog", Version: "1.0.0",
 		Instructions: "The sections of a blog.",
@@ -154,11 +154,11 @@ type Unpoliced struct {
 
 	// db is what it reads when it has one. A nil handle answers an empty list
 	// and still records the call, so measuring dispatch alone needs no driver.
-	db *data.DB
+	db *database.DB
 }
 
 // NewUnpoliced returns the tool over the given handle, which may be nil.
-func NewUnpoliced(db *data.DB) *Unpoliced { return &Unpoliced{db: db} }
+func NewUnpoliced(db *database.DB) *Unpoliced { return &Unpoliced{db: db} }
 
 // Name and Description are what a client lists the tool as.
 func (*Unpoliced) Name() string        { return "list_everything" }
@@ -191,7 +191,7 @@ func (t *Unpoliced) Handle(ctx context.Context, _ mcp.Request) (mcp.Response, er
 
 // UnpolicedServer is a server carrying the one tool, over the given handle, and
 // the tool itself so a caller can read whether it was reached.
-func UnpolicedServer(db *data.DB) (*mcp.Server, *Unpoliced) {
+func UnpolicedServer(db *database.DB) (*mcp.Server, *Unpoliced) {
 	tool := NewUnpoliced(db)
 	return &mcp.Server{
 		Name: "blog", Version: "1.0.0",
@@ -208,7 +208,7 @@ func UnpolicedServer(db *data.DB) (*mcp.Server, *Unpoliced) {
 // then be trusting the thing under test to report on itself. What arrived at
 // the driver is measured below the handle, so a statement the handle failed to
 // record still shows up here.
-func CountingHandle(t *testing.T) (*data.DB, *Statements) {
+func CountingHandle(t *testing.T) (*database.DB, *Statements) {
 	t.Helper()
 
 	counter := &Statements{}
@@ -221,7 +221,7 @@ func CountingHandle(t *testing.T) (*data.DB, *Statements) {
 	}
 	t.Cleanup(func() { _ = inner.Close() })
 
-	return data.Wrap(inner, data.DialectSQLite), counter
+	return database.Wrap(inner, database.DialectSQLite), counter
 }
 
 // Statements counts what reached the driver, and remembers the last one.

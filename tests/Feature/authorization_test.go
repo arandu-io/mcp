@@ -14,23 +14,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arandu-io/framework/observability"
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
+	hlog "github.com/arandu-io/hesape/log"
 
 	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
 
 // editor is a subject the policy allows.
-func editor() security.Subject {
-	return security.Subject{ID: "u1", Tenant: "t1", Roles: []string{helpers.EditorRole}}
+func editor() auth.Subject {
+	return auth.Subject{ID: "u1", Tenant: "t1", Roles: []string{helpers.EditorRole}}
 }
 
 // collected returns a context carrying a collector, and the collector.
-func collected(t *testing.T) (context.Context, *observability.Collector) {
+func collected(t *testing.T) (context.Context, *hlog.Collector) {
 	t.Helper()
-	collector := observability.NewCollector("test")
-	return observability.WithCollector(context.Background(), collector), collector
+	collector := hlog.NewCollector("test")
+	return hlog.WithCollector(context.Background(), collector), collector
 }
 
 func TestARefusedToolReachesTheHandleWithNoStatementAtAll(t *testing.T) {
@@ -38,7 +38,7 @@ func TestARefusedToolReachesTheHandleWithNoStatementAtAll(t *testing.T) {
 	server := helpers.SectionsServer(db)
 	ctx, collector := collected(t)
 
-	answer := server.Call(ctx, security.Guest("t1"), "list_sections", nil)
+	answer := server.Call(ctx, auth.Guest("t1"), "list_sections", nil)
 
 	if !answer.IsError {
 		t.Fatalf("a refused tool answered %q without isError", answer.Text)
@@ -98,7 +98,7 @@ func TestASubjectNobodyLoadedRunsNoStatementEither(t *testing.T) {
 	server := helpers.SectionsServer(db)
 	ctx, collector := collected(t)
 
-	answer := server.Call(ctx, security.Subject{}, "list_sections", nil)
+	answer := server.Call(ctx, auth.Subject{}, "list_sections", nil)
 
 	if !answer.IsError {
 		t.Fatalf("an empty subject answered %q without isError", answer.Text)
@@ -118,7 +118,7 @@ func TestAToolRefusedOverTheWireProtocolRunsNoStatement(t *testing.T) {
 	server := helpers.SectionsServer(db)
 	ctx, collector := collected(t)
 
-	body := server.Handle(ctx, security.Guest("t1"), []byte(
+	body := server.Handle(ctx, auth.Guest("t1"), []byte(
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sections"}}`))
 
 	var answer helpers.AnswerShape
@@ -163,7 +163,7 @@ func TestAToolThatAsksNoPolicyIsDispatchedAndReachesTheHandle(t *testing.T) {
 	server, tool := helpers.UnpolicedServer(db)
 	ctx, collector := collected(t)
 
-	answer := server.Call(ctx, security.Subject{}, "list_everything", nil)
+	answer := server.Call(ctx, auth.Subject{}, "list_everything", nil)
 
 	if answer.IsError {
 		t.Fatalf("the server refused a tool that asks no policy: %s", answer.Text)
@@ -192,7 +192,7 @@ func TestAToolThatAsksNoPolicyIsDispatchedOverTheWireProtocolToo(t *testing.T) {
 	server, tool := helpers.UnpolicedServer(db)
 	ctx, _ := collected(t)
 
-	body := server.Handle(ctx, security.Subject{}, []byte(
+	body := server.Handle(ctx, auth.Subject{}, []byte(
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_everything"}}`))
 
 	var answer helpers.AnswerShape
@@ -230,7 +230,7 @@ func TestTheLocalTransportRefusesWithoutReachingTheHandle(t *testing.T) {
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sections"}}` + "\n")
 
-	if err := mcp.Local(ctx, server, security.Guest("t1"), in, out); err != nil {
+	if err := mcp.Local(ctx, server, auth.Guest("t1"), in, out); err != nil {
 		t.Fatalf("serving over the pipe: %v", err)
 	}
 	if !strings.Contains(out.String(), `"isError":true`) {

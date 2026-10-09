@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 )
 
 // The wire format: JSON-RPC 2.0, which is what the protocol carries.
@@ -254,7 +254,7 @@ func tooLong() []byte {
 //
 // It returns nil for a notification -- a message with no id, which the protocol
 // says gets no answer. Sending one anyway is what makes a client hang up.
-func (s *Server) Handle(ctx context.Context, subject security.Subject, body []byte) []byte {
+func (s *Server) Handle(ctx context.Context, subject auth.Subject, body []byte) []byte {
 	req, ok := parse(body)
 	if !ok {
 		// Bytes that are not JSON and JSON that is not an object are different

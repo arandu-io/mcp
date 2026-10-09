@@ -45,7 +45,7 @@ func (t ListPosts) Handle(ctx context.Context, r mcp.Request) (mcp.Response, err
 	limit, _ := r.Int("limit")
 
 	// The subject the request carried, through the service, through the policy.
-	found, err := t.svc.List(ctx, r.Subject(), data.Query{Limit: limit})
+	found, err := t.svc.List(ctx, r.Subject(), database.Query{Limit: limit})
 	if err != nil {
 		return mcp.Response{}, err
 	}
@@ -81,8 +81,8 @@ The shape above is the one this ecosystem's users already know, deliberately.
 One thing is different, and it is the reason this package exists rather than a
 generic Go MCP library.
 
-**A tool reaches data, and every path to data in Arandu carries a
-`security.Grant`.** The `Subject` is on the `Request`, and a tool has no other
+**A tool reaches data, and every path to data in Arandu carries an
+`auth.Grant`.** The `Subject` is on the `Request`, and a tool has no other
 way to call a service. A policy that refuses a tool refuses it for the same
 reason it refuses a controller — there is no second enforcement point, and no
 way to write one by accident.

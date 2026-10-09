@@ -11,9 +11,10 @@ import (
 	"net/http"
 	"os"
 
-	fhttp "github.com/arandu-io/framework/http"
-	"github.com/arandu-io/framework/observability"
 	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
+	hhttp "github.com/arandu-io/hesape/http"
+	hlog "github.com/arandu-io/hesape/log"
 )
 
 // The two transports, and the difference between them is who is asking.
@@ -46,8 +47,8 @@ const MaxMessage = 1 << 20
 //
 // The subject comes from the session. A client with none is a guest, and what a
 // guest may do is the policy's answer -- the same answer a browser would get.
-func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.Context) error {
-	return func(ctx *fhttp.Context) error {
+func Web(s *Server, sessions *security.SessionStore, tenant string) func(*hhttp.Context) error {
+	return func(ctx *hhttp.Context) error {
 		body, err := io.ReadAll(io.LimitReader(ctx.Request.Body, MaxMessage+1))
 		if err != nil {
 			return ctx.Status(http.StatusBadRequest)
@@ -64,7 +65,7 @@ func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.
 		// own subject is a client that could name anybody's.
 		subject, err := sessions.Load(ctx.Ctx(), ctx.Request)
 		if err != nil {
-			subject = security.Guest(tenant)
+			subject = auth.Guest(tenant)
 		}
 
 		answer := s.Handle(ctx.Ctx(), subject, body)
@@ -97,7 +98,7 @@ func Web(s *Server, sessions *security.SessionStore, tenant string) func(*fhttp.
 // for an EOF, and a peer that has hung up, crashed or gone quiet never sends
 // one. A reader that is not a Closer cannot be interrupted, and there the serve
 // still ends at the next message boundary.
-func Local(ctx context.Context, s *Server, subject security.Subject, in io.Reader, out io.Writer) error {
+func Local(ctx context.Context, s *Server, subject auth.Subject, in io.Reader, out io.Writer) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -196,8 +197,8 @@ func readLine(r *bufio.Reader, limit int) ([]byte, bool, error) {
 }
 
 // Start is Local over the process's own stdin and stdout.
-func Start(ctx context.Context, s *Server, subject security.Subject) error {
-	observability.Log(ctx).Info("mcp: serving over stdio",
+func Start(ctx context.Context, s *Server, subject auth.Subject) error {
+	hlog.For(ctx).Info("mcp: serving over stdio",
 		"server", s.Name, "tools", len(s.Tools), "subject", subject.ID)
 	return Local(ctx, s, subject, os.Stdin, os.Stdout)
 }

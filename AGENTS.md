@@ -53,7 +53,8 @@ build. It also refuses a test outside `tests/` that is not
 `*_internal_test.go`, a capitalised package clause, and a shipping package that
 reaches the tests tree. This module has no `*_internal_test.go` at all.
 
-CI adds three it does not: one dependency, no Node, and govulncheck.
+CI adds three it does not: two dependencies and nothing third-party, no Node,
+and govulncheck.
 
 ## The tree
 
@@ -112,13 +113,13 @@ missing by accident.
 | an empty result for a refused authorization | `mcp.Error`, with `isError` set. A model handed an empty list concludes there is nothing there |
 | a third transport with its own validation | `Server.Call`, which both go through |
 | sampling, roots, completion, subscriptions | nothing. A capability declared and not served is one a client reports as the server being broken |
-| a second dependency | one direct require, and it is the framework. Three indirect come with it, and CI fails a fourth |
+| a third dependency | two direct requires, hesape and the framework, each symbol named by the path it is declared at. CI fails a third direct require, and any module in the build -- direct or indirect, the suite included -- that is neither `github.com/arandu-io/` nor `golang.org/x/` |
 
 ## The one rule everything else follows from
 
 **The subject comes from the transport, never from the message.**
 
-`Server.Handle` takes a `security.Subject` as a parameter. `parse` reads four
+`Server.Handle` takes an `auth.Subject` as a parameter. `parse` reads four
 members — `jsonrpc`, `id`, `method`, `params` — and no member of any message
 reaches a subject, a tenant or a role. A client that could name its own subject
 is a client that could name anybody's.

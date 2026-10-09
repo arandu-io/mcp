@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
@@ -62,7 +62,7 @@ func TestCancellingTheContextEndsAServeBlockedInARead(t *testing.T) {
 	out := announced{wrote: make(chan struct{}, 4)}
 	done := make(chan error, 1)
 	go func() {
-		done <- mcp.Local(ctx, helpers.Everything(), security.Subject{ID: "u1", Tenant: "t1"}, reader, out)
+		done <- mcp.Local(ctx, helpers.Everything(), auth.Subject{ID: "u1", Tenant: "t1"}, reader, out)
 	}()
 
 	// One message through, so the loop is known to be past its own start and
@@ -107,7 +107,7 @@ func TestACancelledServeLeavesNothingRunning(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
 		go func() {
-			done <- mcp.Local(ctx, helpers.Everything(), security.Subject{ID: "u1"}, reader, io.Discard)
+			done <- mcp.Local(ctx, helpers.Everything(), auth.Subject{ID: "u1"}, reader, io.Discard)
 		}()
 
 		cancel()
@@ -135,7 +135,7 @@ func TestACancelledServeLeavesNothingRunning(t *testing.T) {
 // to report every shutdown as one.
 func TestAStreamThatEndsIsNotACancellation(t *testing.T) {
 	var out bytes.Buffer
-	err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"},
+	err := mcp.Local(context.Background(), helpers.Everything(), auth.Subject{ID: "u1"},
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`+"\n"), &out)
 
 	if err != nil {
@@ -162,7 +162,7 @@ func TestALineIsNotReadIntoUnboundedMemory(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, in, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), auth.Subject{ID: "u1"}, in, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 	runtime.ReadMemStats(&after)
@@ -183,7 +183,7 @@ func TestABlankLineIsNotAMessage(t *testing.T) {
 
 	in := strings.NewReader(strings.Repeat("\n", blanks) + strings.Repeat(" \t\r\n", blanks))
 	var out bytes.Buffer
-	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, in, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), auth.Subject{ID: "u1"}, in, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestAnOversizedMessageIsRefusedAndTheStreamResyncs(t *testing.T) {
 	stream.WriteString(`{"jsonrpc":"2.0","id":2,"method":"ping"}` + "\n")
 
 	var out bytes.Buffer
-	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, &stream, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), auth.Subject{ID: "u1"}, &stream, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 
@@ -278,7 +278,7 @@ func TestALargeMessageOverAPipeStillArrives(t *testing.T) {
 		strings.Repeat("a", 512<<10) + `"}}` + "\n")
 
 	var out bytes.Buffer
-	if err := mcp.Local(context.Background(), helpers.Everything(), security.Subject{ID: "u1"}, in, &out); err != nil {
+	if err := mcp.Local(context.Background(), helpers.Everything(), auth.Subject{ID: "u1"}, in, &out); err != nil {
 		t.Fatalf("reading the stream failed: %v", err)
 	}
 

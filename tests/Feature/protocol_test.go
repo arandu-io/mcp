@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
@@ -19,11 +19,11 @@ import (
 func TestANotificationIsNotAnswered(t *testing.T) {
 	s := helpers.Blog(&helpers.Posts{})
 
-	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
+	if got := s.Handle(context.Background(), auth.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); got != nil {
 		t.Errorf("a notification was answered with %s", got)
 	}
-	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
+	if got := s.Handle(context.Background(), auth.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)); got == nil {
 		t.Error("a request with an id was not answered")
 	}
@@ -34,7 +34,7 @@ func TestANotificationIsNotAnswered(t *testing.T) {
 // A capability the server cannot serve is one a client asks about once and
 // reports as the server being broken.
 func TestInitializeDeclaresOnlyWhatTheServerHas(t *testing.T) {
-	body := helpers.Blog(&helpers.Posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
+	body := helpers.Blog(&helpers.Posts{}).Handle(context.Background(), auth.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize",`+
 			`"params":{"protocolVersion":"2024-11-05","capabilities":{},`+
 			`"clientInfo":{"name":"a-client","version":"1.0.0"}}}`))
@@ -69,7 +69,7 @@ func TestInitializeDeclaresOnlyWhatTheServerHas(t *testing.T) {
 // and the first message that depends on the agreement is where it surfaces,
 // which is far away from the message that was wrong.
 func TestInitializeReadsTheParametersItIsGiven(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, bad := range []struct {
 		about  string
@@ -114,7 +114,7 @@ func TestInitializeReadsTheParametersItIsGiven(t *testing.T) {
 // agrees to a revision it cannot hold up, and the disagreement then shows up as
 // a member that is missing rather than as a version that was refused.
 func TestInitializeAnswersWithTheOneRevisionThisServerSpeaks(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, asked := range []string{"2024-11-05", "2025-06-18", "1999-01-01"} {
 		answer := helpers.Everything().Handle(context.Background(), who,
@@ -151,7 +151,7 @@ func TestInitializeAnswersWithTheOneRevisionThisServerSpeaks(t *testing.T) {
 func TestAMemberIsTheOneItIsNamed(t *testing.T) {
 	tool := &helpers.Posts{}
 	s := helpers.Blog(tool)
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	ran := s.Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"ping","METHOD":"tools/call",`+
@@ -191,7 +191,7 @@ func TestAnAnswerAlwaysCarriesAnID(t *testing.T) {
 		`{"jsonrpc":"1.0","method":"ping"}`,
 		`{"jsonrpc":"2.0","id":4,"method":"nope"}`,
 	} {
-		answer := s.Handle(context.Background(), security.Subject{ID: "u1"}, []byte(body))
+		answer := s.Handle(context.Background(), auth.Subject{ID: "u1"}, []byte(body))
 		if answer == nil {
 			t.Errorf("%q got no answer at all", body)
 			continue
@@ -223,7 +223,7 @@ func TestAnAnswerAlwaysCarriesAnID(t *testing.T) {
 func TestAnIDIsAStringOrANumber(t *testing.T) {
 	tool := &helpers.Posts{}
 	s := helpers.Blog(tool)
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, id := range []string{`{"a":1}`, `{}`, `[1,2]`, `[]`, `true`, `false`, `null`, ` null `} {
 		body := `{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}`
@@ -303,7 +303,7 @@ func TestAnIDIsAStringOrANumber(t *testing.T) {
 // request unanswered forever.
 func TestAnIDThatIsNullIsNotAMissingOne(t *testing.T) {
 	s := helpers.Blog(&helpers.Posts{})
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	answer := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","id":null,"method":"ping"}`))
 	if answer == nil {
@@ -333,7 +333,7 @@ func TestAnIDThatIsNullIsNotAMissingOne(t *testing.T) {
 // treat as the connection having gone wrong.
 func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
 	s := helpers.Blog(&helpers.Posts{})
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, method := range []string{
 		"notifications/initialized",
@@ -385,7 +385,7 @@ func TestANotificationThatCarriesAnIDIsRefused(t *testing.T) {
 func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
 	tool := &helpers.Posts{}
 	s := helpers.Blog(tool)
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, params := range []string{`7`, `"list_posts"`, `true`, `""`, `1.5`} {
 		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":` + params + `}`
@@ -445,7 +445,7 @@ func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
 func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
 	tool := &helpers.Posts{}
 	s := helpers.Blog(tool)
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	answer := s.Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":["list_posts",{"status":"draft"}]}`))
@@ -484,7 +484,7 @@ func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
 // argument is missing, which sends whoever reads that looking for the member
 // they did send.
 func TestArgumentsThatAreNotAnObjectAreRefused(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, arguments := range []string{`[1,2]`, `["status","draft"]`, `"draft"`, `7`, `true`} {
 		tool := &helpers.Posts{}
@@ -546,7 +546,7 @@ func TestArgumentsThatAreNotAnObjectAreRefused(t *testing.T) {
 // were dropped is a conversation started about the wrong thing -- and it looks
 // like an answer, because it is one.
 func TestAPromptWhoseArgumentsCannotBeReadIsNotRendered(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, arguments := range []string{`[1,2]`, `"x"`, `7`, `true`} {
 		answer := helpers.Everything().Handle(context.Background(), who,
@@ -609,7 +609,7 @@ func promptMessages(t *testing.T, body []byte) ([]json.RawMessage, *helpers.Answ
 // conversation with nothing in it -- the empty-list mistake this server refuses
 // to make for a tool, made for a prompt instead.
 func TestAPromptThatWasNotRenderedIsNotAnsweredWithAnEmptyConversation(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	refused := helpers.Conversations().Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"unrenderable"}}`))
@@ -634,7 +634,7 @@ func TestAPromptThatWasNotRenderedIsNotAnsweredWithAnEmptyConversation(t *testin
 // Answered as a result with no messages, there is nothing to correct: the model
 // reads a prompt that exists and is empty.
 func TestAPromptNobodyDeclaredIsAFailureAndNotAnEmptyConversation(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	missing := helpers.Conversations().Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"summarize"}}`))
@@ -658,7 +658,7 @@ func TestAPromptNobodyDeclaredIsAFailureAndNotAnEmptyConversation(t *testing.T) 
 // handler that returned no messages and no error said there are none, and that
 // answer still arrives as a result.
 func TestAnEmptyConversationIsWhatAPromptThatMeantItAnswers(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	silent := helpers.Conversations().Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"silent"}}`))
@@ -691,7 +691,7 @@ func TestAnEmptyConversationIsWhatAPromptThatMeantItAnswers(t *testing.T) {
 // nobody sent is a conversation started about the wrong thing -- and it looks
 // like a result, because it is one.
 func TestAPromptIsNotRenderedFromArgumentsItDidNotDeclare(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, bad := range []struct {
 		about     string
@@ -744,7 +744,7 @@ func TestAPromptIsNotRenderedFromArgumentsItDidNotDeclare(t *testing.T) {
 // TestAnOptionalPromptArgumentIsStillOptional, so "required" stays a statement
 // about one argument rather than a way to refuse every call.
 func TestAnOptionalPromptArgumentIsStillOptional(t *testing.T) {
-	rendered := helpers.Everything().Handle(context.Background(), security.Subject{ID: "u1", Tenant: "t1"},
+	rendered := helpers.Everything().Handle(context.Background(), auth.Subject{ID: "u1", Tenant: "t1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"prompts/get",`+
 			`"params":{"name":"summarise","arguments":{"slug":"a-post"}}}`))
 
@@ -759,7 +759,7 @@ func TestAnOptionalPromptArgumentIsStillOptional(t *testing.T) {
 // failures into the one message a sender that is not listening receives is how
 // this change would break a client that was working.
 func TestAPromptThatFailedIsStillSilentWhenItWasANotification(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, name := range []string{"unrenderable", "summarize", "silent"} {
 		if got := helpers.Conversations().Handle(context.Background(), who,
@@ -779,7 +779,7 @@ func TestAPromptThatFailedIsStillSilentWhenItWasANotification(t *testing.T) {
 func TestANotificationIsAnsweredBySilenceHoweverWrongItIs(t *testing.T) {
 	tool := &helpers.Posts{}
 	s := helpers.Blog(tool)
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, body := range []string{
 		`{"jsonrpc":"2.0","method":"tools/call","params":7}`,
@@ -803,7 +803,7 @@ func TestANotificationIsAnsweredBySilenceHoweverWrongItIs(t *testing.T) {
 // a call that is missing nothing.
 func TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame(t *testing.T) {
 	s := helpers.Blog(&helpers.Posts{})
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	absent := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	null := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":null}`))
@@ -829,7 +829,7 @@ func TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame(t *testing.T) {
 func TestAMemberNobodyNamedIsCarriedRatherThanRefused(t *testing.T) {
 	tool := &helpers.Posts{}
 	s := helpers.Blog(tool)
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	answer := s.Handle(context.Background(), who,
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"ping","nonsense":{"a":1},"_meta":{"progressToken":9}}`))
@@ -861,7 +861,7 @@ func TestAMemberNobodyNamedIsCarriedRatherThanRefused(t *testing.T) {
 // -32603 is neither: it is a call that was read, accepted and then failed
 // inside, and retrying it is the only sensible response.
 func TestTheCodeSaysWhichHalfOfTheMessageIsWrong(t *testing.T) {
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	for _, message := range []struct {
 		about string
@@ -941,7 +941,7 @@ func TestTheCodeSaysWhichHalfOfTheMessageIsWrong(t *testing.T) {
 // expected, and reporting that the method named by the empty string is not
 // implemented sends the reader looking for a method.
 func TestAMessageWithNoMethodSaysSo(t *testing.T) {
-	answer := helpers.Blog(&helpers.Posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
+	answer := helpers.Blog(&helpers.Posts{}).Handle(context.Background(), auth.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
 
 	if !strings.Contains(string(answer), "no method") {
@@ -956,11 +956,11 @@ func TestAMessageWithNoMethodSaysSo(t *testing.T) {
 func TestOnlySomethingThatIsNotJSONIsCalledThat(t *testing.T) {
 	s := helpers.Blog(&helpers.Posts{})
 
-	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
+	if got := s.Handle(context.Background(), auth.Subject{ID: "u1"},
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":5}`)); strings.Contains(string(got), "not JSON") {
 		t.Errorf("a message that is JSON was reported as not being JSON: %s", got)
 	}
-	if got := s.Handle(context.Background(), security.Subject{ID: "u1"},
+	if got := s.Handle(context.Background(), auth.Subject{ID: "u1"},
 		[]byte(`{oops`)); !strings.Contains(string(got), "not JSON") {
 		t.Errorf("a message that is not JSON was reported as something else: %s", got)
 	}

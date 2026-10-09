@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
@@ -54,7 +54,7 @@ func TestThePackageDocDescribesTheAuthorizationTheServerPerforms(t *testing.T) {
 	doc := packageDoc(t)
 
 	server, tool := helpers.UnpolicedServer(nil)
-	answer := server.Call(context.Background(), security.Subject{}, "list_everything", nil)
+	answer := server.Call(context.Background(), auth.Subject{}, "list_everything", nil)
 	refused := answer.IsError && !tool.Ran
 
 	if refused {

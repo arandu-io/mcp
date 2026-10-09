@@ -22,6 +22,7 @@ import (
 
 	fhttp "github.com/arandu-io/framework/http"
 	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	"github.com/arandu-io/mcp"
 )
@@ -54,7 +55,7 @@ type AnswerShape struct {
 type Posts struct {
 	// Asked records who the tool was told to act as, which is the thing worth
 	// asserting about -- everything else in this package is transport.
-	Asked security.Subject
+	Asked auth.Subject
 	// Refuse makes the service answer the way an authorization failure does.
 	Refuse bool
 }
@@ -104,7 +105,7 @@ func (Readme) URI() string         { return "blog://readme" }
 func (Readme) Name() string        { return "readme" }
 func (Readme) Description() string { return "What this blog is." }
 func (Readme) MimeType() string    { return "" }
-func (Readme) Read(context.Context, security.Subject) (mcp.Response, error) {
+func (Readme) Read(context.Context, auth.Subject) (mcp.Response, error) {
 	return mcp.Text("a blog"), nil
 }
 
@@ -118,7 +119,7 @@ func (Manifest) URI() string         { return "blog://manifest.json" }
 func (Manifest) Name() string        { return "manifest" }
 func (Manifest) Description() string { return "What this blog contains." }
 func (Manifest) MimeType() string    { return "application/json" }
-func (Manifest) Read(context.Context, security.Subject) (mcp.Response, error) {
+func (Manifest) Read(context.Context, auth.Subject) (mcp.Response, error) {
 	return mcp.Text(`{"posts":1}`), nil
 }
 

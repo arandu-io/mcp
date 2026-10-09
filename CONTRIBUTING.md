@@ -31,10 +31,11 @@ with them too. Nothing here carries a build tag today, so they change no result
 -- they are here so that the day a suite goes behind one, this file is not
 telling you to run less than CI runs.
 
-CI runs these four and three more. It checks that no dependency beyond the
-framework entered this module: it is imported by applications that expose
-themselves to an assistant, and a second require is a download for every one of
-them. A pull request that adds one needs to argue for it first, in an issue. It
+CI runs these four and three more. It checks that the direct requires are the
+framework and hesape and nothing else, and that no module the build takes
+packages from is third-party: this module is imported by applications that
+expose themselves to an assistant, and a third require is a download for every
+one of them. A pull request that adds one needs to argue for it first, in an issue. It
 checks that no Node file appeared. And it runs govulncheck, which is why a
 release can be held by a vulnerability in a dependency you did not add.
 

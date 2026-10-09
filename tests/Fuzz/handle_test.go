@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
@@ -93,7 +93,7 @@ func FuzzHandle(f *testing.F) {
 	}
 
 	s := helpers.Everything()
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	f.Fuzz(func(t *testing.T, body []byte) {
 		answer := s.Handle(context.Background(), who, body)

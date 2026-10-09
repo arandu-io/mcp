@@ -72,7 +72,7 @@ and calls `Server.Handle(ctx, subject, body)`.
 
 ```go
 // The identity the assistant acts as, declared where a reviewer reads it.
-assistant := security.Subject{ID: "assistant", Tenant: cfg.Auth.Tenant, Roles: []string{"reader"}}
+assistant := auth.Subject{ID: "assistant", Tenant: cfg.Auth.Tenant, Roles: []string{"reader"}}
 
 if err := mcp.Start(ctx, server, assistant); err != nil {
 	return err

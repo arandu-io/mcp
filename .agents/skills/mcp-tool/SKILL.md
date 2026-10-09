@@ -26,7 +26,7 @@ func (t ListPosts) Handle(ctx context.Context, r mcp.Request) (mcp.Response, err
 	limit, _ := r.Int("limit")
 
 	// The subject the request carried, through the service, through the policy.
-	found, err := t.svc.List(ctx, r.Subject(), data.Query{Limit: limit})
+	found, err := t.svc.List(ctx, r.Subject(), database.Query{Limit: limit})
 	if err != nil {
 		return mcp.Response{}, err
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
@@ -20,7 +20,7 @@ import (
 // the answers look right.
 func TestTheToolIsCalledAsTheSubjectThatAsked(t *testing.T) {
 	tool := &helpers.Posts{}
-	who := security.Subject{ID: "u1", Tenant: "t1", Roles: []string{"author"}}
+	who := auth.Subject{ID: "u1", Tenant: "t1", Roles: []string{"author"}}
 
 	out := helpers.Blog(tool).Call(context.Background(), who, "list_posts",
 		map[string]any{"status": "published"})
@@ -40,7 +40,7 @@ func TestTheToolIsCalledAsTheSubjectThatAsked(t *testing.T) {
 func TestARefusalIsAnErrorAndNotAnEmptyResult(t *testing.T) {
 	tool := &helpers.Posts{Refuse: true}
 
-	out := helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1", Tenant: "t1"},
+	out := helpers.Blog(tool).Call(context.Background(), auth.Subject{ID: "u1", Tenant: "t1"},
 		"list_posts", nil)
 
 	if !out.IsError {
@@ -58,7 +58,7 @@ func TestARefusalIsAnErrorAndNotAnEmptyResult(t *testing.T) {
 func TestAnUndeclaredArgumentIsRefused(t *testing.T) {
 	tool := &helpers.Posts{}
 
-	out := helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1"}, "list_posts",
+	out := helpers.Blog(tool).Call(context.Background(), auth.Subject{ID: "u1"}, "list_posts",
 		map[string]any{"tenant": "somebody-elses"})
 
 	if !out.IsError {
@@ -79,7 +79,7 @@ func TestAnUndeclaredArgumentIsRefused(t *testing.T) {
 // A model told one mistake per call spends three calls on a form it could have
 // fixed on the second.
 func TestAWrongTypeAndAWrongEnumAreBothReported(t *testing.T) {
-	out := helpers.Blog(&helpers.Posts{}).Call(context.Background(), security.Subject{ID: "u1"},
+	out := helpers.Blog(&helpers.Posts{}).Call(context.Background(), auth.Subject{ID: "u1"},
 		"list_posts", map[string]any{"status": "archived", "limit": "ten"})
 
 	if !out.IsError {
@@ -131,7 +131,7 @@ func TestANumberThatIsNotAnIntegerNeverReachesTheTool(t *testing.T) {
 		{"a value past the range of an int", 1e100},
 	} {
 		tool := &limited{}
-		out := helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1"},
+		out := helpers.Blog(tool).Call(context.Background(), auth.Subject{ID: "u1"},
 			"list_posts", map[string]any{"limit": bad.value})
 
 		if !out.IsError {
@@ -144,7 +144,7 @@ func TestANumberThatIsNotAnIntegerNeverReachesTheTool(t *testing.T) {
 
 	// A whole number still reaches it, and reaches it as itself.
 	tool := &limited{}
-	if out := helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1"},
+	if out := helpers.Blog(tool).Call(context.Background(), auth.Subject{ID: "u1"},
 		"list_posts", map[string]any{"limit": 20.0}); out.IsError {
 		t.Fatalf("a whole number was refused: %q", out.Text)
 	}
@@ -170,7 +170,7 @@ func TestReadingANumberThatIsNotAnIntegerReportsThatItIsNot(t *testing.T) {
 		{"not a number at all", math.NaN()},
 	} {
 		tool := &limited{}
-		helpers.Blog(tool).Call(context.Background(), security.Subject{ID: "u1"}, "list_posts", nil)
+		helpers.Blog(tool).Call(context.Background(), auth.Subject{ID: "u1"}, "list_posts", nil)
 
 		r := mcp.Request{Arguments: map[string]any{"limit": bad.value}}
 		if got, ok := r.Int("limit"); ok {
@@ -190,7 +190,7 @@ func TestReadingANumberThatIsNotAnIntegerReportsThatItIsNot(t *testing.T) {
 // TestAnUnknownToolListsTheOnesThatExist: a model retrying the same wrong name
 // is a model that was told nothing useful.
 func TestAnUnknownToolListsTheOnesThatExist(t *testing.T) {
-	out := helpers.Blog(&helpers.Posts{}).Call(context.Background(), security.Subject{ID: "u1"},
+	out := helpers.Blog(&helpers.Posts{}).Call(context.Background(), auth.Subject{ID: "u1"},
 		"list_post", nil)
 
 	if !out.IsError {

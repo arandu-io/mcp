@@ -72,23 +72,28 @@ jobs:
       - name: test layout
         run: bash tests/test-layout-guard.sh
 
-      # One dependency, and it is the framework.
+      # Two dependencies, both ours, and nothing third-party behind them.
       #
-      # A tool takes a security.Subject and answers through a policy, so the
-      # framework is what this package is made of. Anything else is not: it is
-      # imported by applications that expose themselves to an assistant, and a
-      # second require is a download for all of them.
+      # The package and its suite name each symbol by the path it is declared
+      # at: hesape for what the framework only re-exports, the framework for
+      # what it declares -- the router, the session store and the guards the
+      # suite mounts the server behind. Those are the two direct requires.
+      # Anything else is not what this package is made of: it is imported by
+      # applications that expose themselves to an assistant, and a third
+      # require is a download for all of them.
+      #
+      # Two checks, because a go.mod read alone answers half the question. The
+      # first reads the direct requires. The second asks the toolchain which
+      # modules the build -- the suite and the tags included -- takes packages
+      # from, which is where a third-party module arriving through one of the
+      # two would show up: go.mod lists only what the main module requires, and
+      # an indirect line passed the direct check by being indirect.
       #
       # The pattern anchors on `^[[:space:]]*`, and the leading `*` rather than
-      # a `+` is the whole of the first fix. go.mod writes a require directive
-      # in two shapes, and go mod edit -fmt keeps whichever it finds: a bare
+      # a `+` is what reads both shapes go.mod writes a require in: a bare
       # `require <path> <version>` at column zero, and an indented `require (`
-      # block. A pattern demanding leading whitespace reads the second and
-      # never the first, so this file's own direct line -- `require
-      # github.com/arandu-io/framework v0.35.0` -- was outside the check that
-      # exists to police it. It read three lines of go.mod, all of them
-      # indirect. A third-party require written at column zero was invisible,
-      # and so was the framework require being replaced by one.
+      # block. `go mod edit -fmt` keeps whichever it finds, and a pattern
+      # demanding leading whitespace never read the first.
       #
       # `v[0-9]` after the path is what keeps `module`, `go`, `toolchain`,
       # `retract` and the one-line form of `replace` and `exclude` out without
@@ -98,11 +103,11 @@ jobs:
       # would still be reported -- there is none, and a check that errs errs
       # towards saying so.
       #
-      # The count is the second fix, and it is the one that generalises. A
-      # pattern that matches nothing and a go.mod with no forbidden dependency
-      # print the same empty string, so until now the step was loudest about
-      # being clean exactly when it had stopped reading the file.
-      - name: one dependency
+      # Both checks count what they read. A pattern that matches nothing, a
+      # `go list` that fails, and a go.mod with no forbidden dependency all
+      # print the same empty string, so a check that does not count is loudest
+      # about being clean exactly when it has stopped reading.
+      - name: two dependencies
         run: |
           entries=$(grep -E '^[[:space:]]*(require[[:space:]]+)?[^[:space:]]+/[^[:space:]]*[[:space:]]+v[0-9]' go.mod | grep -v '=>' || true)
 
@@ -117,14 +122,37 @@ jobs:
           fi
 
           extra=$(printf '%s\n' "$entries" | grep -v '// indirect' \
-                    | grep -vE 'github\.com/arandu-io/framework[[:space:]]' || true)
+                    | grep -vE 'github\.com/arandu-io/(framework|hesape)[[:space:]]' || true)
           if [ -n "$extra" ]; then
-            echo "this module took a dependency beyond the framework:"
+            echo "this module requires something beyond the framework and hesape:"
             echo "$extra"
             exit 1
           fi
 
-          echo "read $scanned require entries, and none names a dependency beyond the framework"
+          if ! built=$(go list -deps -test -tags integration,e2e -f '{{with .Module}}{{.Path}}{{end}}' ./... 2>&1); then
+            echo "go list failed, so the modules the build takes packages from were not read:"
+            echo "$built"
+            exit 1
+          fi
+          modules=$(printf '%s\n' "$built" | sort -u | grep -v '^$' || true)
+          if ! printf '%s\n' "$modules" | grep -qx 'github.com/arandu-io/mcp'; then
+            echo "the build was read and this module was not in it, so the list is not the build:"
+            echo "$modules"
+            exit 1
+          fi
+
+          # golang.org/x/ is the Go project's own, and it reaches this build
+          # only through the two: it is where the core's one dependency, the
+          # cryptography, lives.
+          third=$(printf '%s\n' "$modules" | grep -vE '^github\.com/arandu-io/|^golang\.org/x/' || true)
+          if [ -n "$third" ]; then
+            echo "the build takes packages from a module that is neither ours nor the Go project's:"
+            echo "$third"
+            exit 1
+          fi
+
+          echo "read $scanned require entries and $(printf '%s\n' "$modules" | grep -c '') modules in the build;"
+          echo "the direct requires are the framework and hesape, and nothing in the build is third-party"
 
       # No Node, in every shape it arrives in.
       #

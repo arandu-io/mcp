@@ -113,7 +113,7 @@ side that sees it. Ignoring is not trusting: the member reaches nothing, and
 
 ## The subject is never in the message
 
-`Handle` takes a `security.Subject` as a parameter and nothing in this file
+`Handle` takes an `auth.Subject` as a parameter and nothing in this file
 reads an identity out of JSON:
 
 ```sh
@@ -260,14 +260,17 @@ as, and the input is a seed.
 
 ## What must not enter this file
 
-- **A second dependency.** `go.mod` names one direct require and it is the
-  framework; the three indirect entries arrive through it. This package is imported by applications that expose themselves to
-  an assistant, so a second require is a download for every one of them. The
-  check, which is the pass when it prints nothing:
+- **A third dependency.** `go.mod` names two direct requires, hesape and the
+  framework, and each symbol is imported by the path it is declared at
+  (`aru imports:catalog` prints it). This package is imported by applications
+  that expose themselves to an assistant, so a third require is a download for
+  every one of them. CI checks the direct requires and the modules the build
+  takes packages from; the second half, which is the pass when it prints
+  nothing:
 
   ```sh
   export GOWORK=off
-  go list -deps -f '{{if .Module}}{{.Module.Path}}{{end}}' ./... \
+  go list -deps -test -tags integration,e2e -f '{{with .Module}}{{.Path}}{{end}}' ./... \
     | sort -u | grep -vE '^github\.com/arandu-io/|^golang\.org/x/'
   ```
 

@@ -32,7 +32,7 @@ every path to data in this framework carries an authorization decision.
 
 The rest of the answer is that this repository is built to be checked rather
 than trusted. The gates are four commands, the layout guard is a fifth, and CI
-adds the three a laptop is worst at remembering — a second dependency, a Node
+adds the three a laptop is worst at remembering — a third dependency, a Node
 file, a known vulnerability. An assistant that runs those is not guessing.
 
 `AGENTS.md` at the root has the tree, the nine methods and the table of what a

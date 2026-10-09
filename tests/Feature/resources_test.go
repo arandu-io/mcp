@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
@@ -38,7 +38,7 @@ func (refused) URI() string         { return "blog://drafts" }
 func (refused) Name() string        { return "drafts" }
 func (refused) Description() string { return "The unpublished posts." }
 func (refused) MimeType() string    { return "" }
-func (refused) Read(context.Context, security.Subject) (mcp.Response, error) {
+func (refused) Read(context.Context, auth.Subject) (mcp.Response, error) {
 	return mcp.Response{}, errors.New("blog.read is not allowed for this subject")
 }
 
@@ -101,7 +101,7 @@ func mimeOfRead(t *testing.T, body []byte) string {
 
 func TestAResourceIsTheSameTypeListedAndRead(t *testing.T) {
 	server := helpers.Files()
-	ctx, subject := context.Background(), security.Guest("t1")
+	ctx, subject := context.Background(), auth.Guest("t1")
 
 	listed := server.Handle(ctx, subject, []byte(
 		`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`))
@@ -149,7 +149,7 @@ func failureOf(t *testing.T, body []byte, about string) (int, string) {
 // which is the same mistake as answering a refusal with an empty list, one
 // method further along.
 func TestAReadThatDidNotHappenIsNotAnsweredAsTheResourceItself(t *testing.T) {
-	ctx, subject := context.Background(), security.Guest("t1")
+	ctx, subject := context.Background(), auth.Guest("t1")
 
 	refusal := guarded().Handle(ctx, subject, []byte(
 		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"blog://drafts"}}`))
@@ -174,7 +174,7 @@ func TestAReadThatDidNotHappenIsNotAnsweredAsTheResourceItself(t *testing.T) {
 // way, or answering either with a successful document, leaves it with neither
 // choice.
 func TestAURINobodyAnswersToIsAFailureAndNamesItsOwnCode(t *testing.T) {
-	read := guarded().Handle(context.Background(), security.Guest("t1"), []byte(
+	read := guarded().Handle(context.Background(), auth.Guest("t1"), []byte(
 		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"blog://nothing"}}`))
 
 	code, message := failureOf(t, read, "a URI no resource answers to")
@@ -189,7 +189,7 @@ func TestAURINobodyAnswersToIsAFailureAndNamesItsOwnCode(t *testing.T) {
 // TestAResourceThatReadsIsStillAnsweredWithItsContents, so the failures above
 // are about failing and not a way to refuse every read.
 func TestAResourceThatReadsIsStillAnsweredWithItsContents(t *testing.T) {
-	read := guarded().Handle(context.Background(), security.Guest("t1"), []byte(
+	read := guarded().Handle(context.Background(), auth.Guest("t1"), []byte(
 		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"blog://readme"}}`))
 
 	var answer helpers.AnswerShape
@@ -212,7 +212,7 @@ func TestAResourceThatReadsIsStillAnsweredWithItsContents(t *testing.T) {
 // working.
 func TestAReadThatFailedIsStillSilentWhenItWasANotification(t *testing.T) {
 	for _, uri := range []string{"blog://drafts", "blog://nothing", "blog://readme"} {
-		if got := guarded().Handle(context.Background(), security.Guest("t1"), []byte(
+		if got := guarded().Handle(context.Background(), auth.Guest("t1"), []byte(
 			`{"jsonrpc":"2.0","method":"resources/read","params":{"uri":"`+uri+`"}}`)); got != nil {
 			t.Errorf("a notification reading %s was answered with %s", uri, got)
 		}

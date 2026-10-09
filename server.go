@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 )
 
 // Server is what a client connects to: a name, and what it can do.
@@ -42,7 +42,7 @@ func (s *Server) Tool(name string) (Tool, bool) {
 // This is the one door. Both transports come through it, so the validation, the
 // authorization boundary and the shape of a failure are decided once -- and a
 // third transport cannot arrive with its own idea of any of them.
-func (s *Server) Call(ctx context.Context, subject security.Subject, name string, args map[string]any) Response {
+func (s *Server) Call(ctx context.Context, subject auth.Subject, name string, args map[string]any) Response {
 	tool, ok := s.Tool(name)
 	if !ok {
 		return Error("there is no tool called %q. %s", name, s.available())
@@ -68,7 +68,7 @@ func (s *Server) Call(ctx context.Context, subject security.Subject, name string
 }
 
 // Read returns a resource's content.
-func (s *Server) Read(ctx context.Context, subject security.Subject, uri string) Response {
+func (s *Server) Read(ctx context.Context, subject auth.Subject, uri string) Response {
 	for _, r := range s.Resources {
 		if r.URI() == uri {
 			out, err := r.Read(ctx, subject)

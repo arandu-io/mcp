@@ -7,11 +7,11 @@
 // # What this package checks, and what it does not
 //
 // A tool reaches data, and a tool is written the way a controller is: it asks a
-// service, the service asks a policy, and the security.Grant the policy issues
+// service, the service asks a policy, and the auth.Grant the policy issues
 // is what the repository signature below it requires.
 //
 //	func (t Invoices) Handle(ctx context.Context, r mcp.Request) (mcp.Response, error) {
-//		found, err := t.svc.List(ctx, r.Subject(), data.Query{Limit: 20})
+//		found, err := t.svc.List(ctx, r.Subject(), database.Query{Limit: 20})
 //		…
 //	}
 //
@@ -60,7 +60,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 )
 
 // Version is the protocol revision this package speaks.
@@ -77,11 +77,11 @@ type Request struct {
 	// subject is who is asking. It is unexported and read through Subject, so a
 	// tool cannot overwrite it -- and a tool that could would be a tool that
 	// chooses its own permissions.
-	subject security.Subject
+	subject auth.Subject
 }
 
 // Subject is who is asking, for the service call the tool is about to make.
-func (r Request) Subject() security.Subject { return r.subject }
+func (r Request) Subject() auth.Subject { return r.subject }
 
 // String reads a string argument, and reports whether it was there at all.
 func (r Request) String(name string) (string, bool) {
@@ -166,7 +166,7 @@ type Resource interface {
 	// MimeType is what the content is. Empty means text/plain.
 	MimeType() string
 	// Read returns the content.
-	Read(ctx context.Context, s security.Subject) (Response, error)
+	Read(ctx context.Context, s auth.Subject) (Response, error)
 }
 
 // Prompt is a conversation an application knows how to start.

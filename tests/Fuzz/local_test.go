@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 
 	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
@@ -39,7 +39,7 @@ func FuzzLocal(f *testing.F) {
 	}
 
 	s := helpers.Everything()
-	who := security.Subject{ID: "u1", Tenant: "t1"}
+	who := auth.Subject{ID: "u1", Tenant: "t1"}
 
 	f.Fuzz(func(t *testing.T, stream []byte) {
 		var out bytes.Buffer
