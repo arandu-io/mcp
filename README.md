@@ -29,6 +29,7 @@ go get github.com/arandu-io/mcp
 ## A tool
 
 ```go
+// app/Mcp/ListPosts.go
 type ListPosts struct{ svc *services.PostService }
 
 func (ListPosts) Name() string        { return "list_posts" }
@@ -49,7 +50,9 @@ func (t ListPosts) Handle(ctx context.Context, r mcp.Request) (mcp.Response, err
 	if err != nil {
 		return mcp.Response{}, err
 	}
-	return mcp.JSON(found), nil
+	// The fields that may leave, listed once in a JSON Resource -- the same one
+	// a controller answers with.
+	return mcp.JSON(resources.NewPostList(found)), nil
 }
 ```
 

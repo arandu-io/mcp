@@ -1,6 +1,6 @@
 ---
 name: mcp-tool
-description: Write or change what an assistant may call in an Arandu application — a tool, a resource or a prompt declared on an mcp.Server. Use when the request is to "expose this to an assistant", "add an MCP tool", "let the AI list orders", "give the model access to", "write a tool", "declare the arguments", "add a resource", "add a prompt", or when a Tool, Schema, Request, Response, mcp.Object or mcp.JSON is involved. Also use when tempted to query the database from a tool, to read the tenant out of an argument, or to answer a refused authorization with an empty list — the first two have no correct form here and the third is what makes a model report there is nothing there. Covers the four methods, the closed set of argument types, r.Subject(), and why the description is the highest-leverage string in the file.
+description: Write or change what an assistant may call in an Arandu application — a tool, a resource or a prompt declared on an mcp.Server. Use when the request is to "expose this to an assistant", "add an MCP tool", "let the AI list orders", "give the model access to", "write a tool", "declare the arguments", "add a resource", "add a prompt", or when a Tool, Schema, Request, Response, mcp.Object, mcp.JSON or a JSON Resource is involved. Also use when tempted to query the database from a tool, to read the tenant out of an argument, or to answer a refused authorization with an empty list — the first two have no correct form here and the third is what makes a model report there is nothing there. Covers the four methods, the closed set of argument types, r.Subject(), and why the description is the highest-leverage string in the file.
 license: MIT
 ---
 
@@ -10,6 +10,7 @@ A tool is four methods and no registration. It is declared in a slice on the
 `Server`, so a tool that exists and is not reachable is visible in one file.
 
 ```go
+// app/Mcp/ListPosts.go
 type ListPosts struct{ svc *services.PostService }
 
 func (ListPosts) Name() string        { return "list_posts" }
@@ -30,7 +31,9 @@ func (t ListPosts) Handle(ctx context.Context, r mcp.Request) (mcp.Response, err
 	if err != nil {
 		return mcp.Response{}, err
 	}
-	return mcp.JSON(found), nil
+	// The fields that may leave, listed once in a JSON Resource -- the same one
+	// a controller answers with.
+	return mcp.JSON(resources.NewPostList(found)), nil
 }
 ```
 
@@ -132,20 +135,55 @@ an argument nobody passed. Validation has already run, so the only reason for a
 ## Answering
 
 `mcp.Text(format, args...)` for prose, `mcp.Error(format, args...)` for a
-failure the model should react to, `mcp.JSON(v)` for structure. `JSON` encodes
-here rather than in the tool so that every tool answers the same shape and a
-marshalling failure is one error message instead of one per tool — and it
-answers rather than panics on a value that cannot be encoded
+failure the model should react to, and `mcp.JSON(resource)` for structure.
+
+`mcp.JSON` takes a JSON Resource — `hhttp.JsonResource` from
+`github.com/arandu-io/hesape/http`, the contract `ctx.JSON` takes — and never a
+bare value. An encoder handed an entity answers with whatever fields the entity
+has, including the ones added later without anybody reading the tool; a JSON
+Resource answers with the fields somebody listed. A model is a reader like any
+other client, and it repeats what it reads.
+
+```go
+// app/Http/Resources/PostList.go
+type PostList struct{ posts []models.Post }
+
+func NewPostList(posts []models.Post) PostList { return PostList{posts} }
+
+func (l PostList) ToArray() map[string]any {
+	items := make([]map[string]any, 0, len(l.posts))
+	for _, p := range l.posts {
+		items = append(items, map[string]any{"slug": p.Slug, "title": p.Title})
+	}
+	return map[string]any{"posts": items}
+}
+
+func (PostList) With() map[string]any { return nil }
+```
+
+The text is the document `ctx.JSON` writes for the same JSON Resource: the
+fields under `data`, what `With` returns beside them, and a field whose value
+reports itself missing — `resources.When(false, …)` — left out. A tool and a
+controller over one service answer the same document
+(`TestAStructuredAnswerIsTheDocumentAControllerAnswersWith`,
+`TestAFieldThatIsMissingIsLeftOut`). `JSON` encodes here rather than in the
+tool so that every tool answers the same shape and a marshalling failure is one
+error message instead of one per tool — and it answers rather than panics on a
+JSON Resource that cannot be encoded, or a nil one
 (`TestAValueThatCannotBeEncodedIsAnAnswerAndNotAPanic`).
 
-## Resources and prompts
+An MCP resource is a different thing with the same word in it: the `Resource`
+interface in the next section, which a client reads by URI. The two are always
+named in full.
 
-A `Resource` is something the client reads by URI: `URI`, `Name`,
-`Description`, `MimeType` and `Read(ctx, subject)`. It takes the subject
-directly, so the same rule applies — it goes to the service, not to a query.
-Two resources at one URI are refused by `Validate`.
+## MCP resources and prompts
 
-A resource is the same type listed and read. `resources/read` looks the
+An MCP resource — the `Resource` interface — is something the client reads by
+URI: `URI`, `Name`, `Description`, `MimeType` and `Read(ctx, subject)`. It
+takes the subject directly, so the same rule applies — it goes to the service,
+not to a query. Two MCP resources at one URI are refused by `Validate`.
+
+An MCP resource is the same type listed and read. `resources/read` looks the
 resource up by URI and answers with the type it declares, taken through the
 same default the listing uses, so an empty `MimeType` is `text/plain` in both —
 `TestAResourceIsTheSameTypeListedAndRead`.

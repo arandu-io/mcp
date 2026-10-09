@@ -102,6 +102,16 @@ func (s *SectionService) List(ctx context.Context, sub auth.Subject) ([]string, 
 	return names, nil
 }
 
+// SectionNames is the resource a list of sections answers as: the names, and
+// nothing else a section carries.
+type SectionNames []string
+
+// ToArray lists the one field that may leave.
+func (n SectionNames) ToArray() map[string]any { return map[string]any{"sections": []string(n)} }
+
+// With adds nothing beside it.
+func (SectionNames) With() map[string]any { return nil }
+
 // Sections is a tool over SectionService.
 //
 // It reads no identity of its own: the subject is the one the transport put on
@@ -126,7 +136,7 @@ func (t *Sections) Handle(ctx context.Context, r mcp.Request) (mcp.Response, err
 	if err != nil {
 		return mcp.Response{}, err
 	}
-	return mcp.JSON(names), nil
+	return mcp.JSON(SectionNames(names)), nil
 }
 
 // SectionsServer is a server carrying the one tool, over the given handle.
@@ -173,7 +183,7 @@ func (*Unpoliced) Schema() mcp.Schema { return mcp.Object() }
 func (t *Unpoliced) Handle(ctx context.Context, _ mcp.Request) (mcp.Response, error) {
 	t.Ran = true
 	if t.db == nil {
-		return mcp.JSON([]string{}), nil
+		return mcp.JSON(SectionNames{}), nil
 	}
 
 	rows, err := t.db.Select(ctx, "select id, name from sections", nil, false)
@@ -186,7 +196,7 @@ func (t *Unpoliced) Handle(ctx context.Context, _ mcp.Request) (mcp.Response, er
 		name, _ := row["name"].(string)
 		names = append(names, name)
 	}
-	return mcp.JSON(names), nil
+	return mcp.JSON(SectionNames(names)), nil
 }
 
 // UnpolicedServer is a server carrying the one tool, over the given handle, and

@@ -61,6 +61,7 @@ import (
 	"strings"
 
 	"github.com/arandu-io/hesape/auth"
+	hhttp "github.com/arandu-io/hesape/http"
 )
 
 // Version is the protocol revision this package speaks.
@@ -127,16 +128,52 @@ func Error(format string, args ...any) Response {
 	return Response{Text: fmt.Sprintf(format, args...), IsError: true}
 }
 
-// JSON is an answer carrying structured data.
+// JSON is an answer carrying structured data: a resource, in the document a
+// controller's Context.JSON answers with for the same resource.
+//
+// It takes a resource and not a value, for the reason Context.JSON does. An
+// encoder handed an entity answers with whatever fields the entity happens to
+// have, including the ones somebody adds to it later without reading this tool:
+// a password hash, an internal note, the account a row belongs to. A resource
+// answers with the fields somebody listed, and a model is a reader like any
+// other client -- more so, since it repeats what it reads.
+//
+// The text is the resource's fields under "data", with what With returns beside
+// them, and a field whose value reports itself missing left out. That is the
+// body Context.JSON writes, so a tool and a controller over one service answer
+// the same document, and a client that reads one reads the other.
 //
 // Encoded here rather than by the tool, so every tool answers the same shape and
-// a marshalling error is one error message instead of one per tool.
-func JSON(v any) Response {
-	body, err := json.MarshalIndent(v, "", "  ")
+// a marshalling error is one error message instead of one per tool. A nil
+// resource, and one that cannot be encoded, are answered as failures rather
+// than panics.
+func JSON(resource hhttp.JsonResource) Response {
+	if resource == nil {
+		return Error("encoding the answer: there is no resource to encode")
+	}
+	body, err := json.MarshalIndent(resourceBody(resource), "", "  ")
 	if err != nil {
 		return Error("encoding the answer: %v", err)
 	}
 	return Response{Text: string(body)}
+}
+
+// resourceBody is the document a resource answers as: its fields under "data",
+// less the ones that report themselves missing, and With beside them.
+func resourceBody(resource hhttp.JsonResource) map[string]any {
+	data := make(map[string]any)
+	for name, value := range resource.ToArray() {
+		if missing, ok := value.(interface{ IsMissing() bool }); ok && missing.IsMissing() {
+			continue
+		}
+		data[name] = value
+	}
+
+	body := map[string]any{"data": data}
+	for name, value := range resource.With() {
+		body[name] = value
+	}
+	return body
 }
 
 // Tool is something a client can call.
@@ -156,7 +193,10 @@ type Tool interface {
 	Handle(ctx context.Context, r Request) (Response, error)
 }
 
-// Resource is something a client can read.
+// Resource is something a client can read, by URI.
+//
+// It is an MCP resource, and not the JSON Resource that JSON takes: that one lists
+// the fields of an answer, this one is a document a client asks for by address.
 type Resource interface {
 	// URI addresses it, in a scheme of the application's choosing.
 	URI() string

@@ -81,12 +81,16 @@ func TestTheAllowedSubjectReachesTheHandleAndCarriesTheTenantFromTheGrant(t *tes
 		t.Fatalf("the statement was bound with %v, want the tenant from the Grant", args)
 	}
 
-	var names []string
-	if err := json.Unmarshal([]byte(answer.Text), &names); err != nil {
-		t.Fatalf("the answer is not the list the tool encoded: %v", err)
+	var listed struct {
+		Data struct {
+			Sections []string `json:"sections"`
+		} `json:"data"`
 	}
-	if len(names) != 1 {
-		t.Fatalf("the tool answered %d sections, want 1", len(names))
+	if err := json.Unmarshal([]byte(answer.Text), &listed); err != nil {
+		t.Fatalf("the answer is not the resource the tool encoded: %v", err)
+	}
+	if len(listed.Data.Sections) != 1 {
+		t.Fatalf("the tool answered %d sections, want 1: %s", len(listed.Data.Sections), answer.Text)
 	}
 }
 
