@@ -340,7 +340,14 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 
 	switch req.Method {
 	case "initialize":
+		if problem := initializeProblem(req.Params); problem != "" {
+			return refuse(codeInvalidParams, problem)
+		}
 		return answer(map[string]any{
+			// The one revision this server speaks, whatever was asked for. A
+			// server that echoes the client's version has agreed to a revision
+			// it cannot hold up, and the disagreement then surfaces as a member
+			// that is missing rather than as a version that was refused.
 			"protocolVersion": Version,
 			"serverInfo":      map[string]any{"name": s.Name, "version": s.Version},
 			"instructions":    s.Instructions,
@@ -491,6 +498,36 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		}
 		return failure(req.ID, codeMethodNotFound, "this server does not implement "+req.Method)
 	}
+}
+
+// initializeProblem reports what is wrong with the parameters of a handshake,
+// or the empty string if nothing is.
+//
+// initialize is the one message whose parameters decide how the rest of the
+// session is read, and a handshake answered without them leaves the client
+// holding a session it believes was negotiated. Nothing reports that: the
+// disagreement surfaces later, at the first message that depends on the
+// agreement, which is a long way from the message that was wrong.
+//
+// The version is required because the revision names it as what a client MUST
+// send. The two structures beside it are checked for being structures and no
+// further: what a client declares inside them is the client's to declare, and
+// refusing a member this revision does not name would refuse the revision after
+// it.
+func initializeProblem(params json.RawMessage) string {
+	fields := members(params)
+	if fields == nil {
+		return "initialize takes parameters: the revision being spoken is named there"
+	}
+	if version := text(fields, "protocolVersion"); version == "" {
+		return "initialize must name the protocolVersion being asked for, as a string"
+	}
+	for _, name := range []string{"capabilities", "clientInfo"} {
+		if raw, present := fields[name]; present && shapeOfParams(raw) != paramsByName {
+			return name + " must be an object"
+		}
+	}
+	return ""
 }
 
 // capabilities is what this server actually has.

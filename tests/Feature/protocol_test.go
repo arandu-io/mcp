@@ -8,6 +8,7 @@ import (
 
 	"github.com/arandu-io/framework/security"
 
+	"github.com/arandu-io/mcp"
 	helpers "github.com/arandu-io/mcp/tests/Helpers"
 )
 
@@ -34,7 +35,9 @@ func TestANotificationIsNotAnswered(t *testing.T) {
 // reports as the server being broken.
 func TestInitializeDeclaresOnlyWhatTheServerHas(t *testing.T) {
 	body := helpers.Blog(&helpers.Posts{}).Handle(context.Background(), security.Subject{ID: "u1"},
-		[]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize",`+
+			`"params":{"protocolVersion":"2024-11-05","capabilities":{},`+
+			`"clientInfo":{"name":"a-client","version":"1.0.0"}}}`))
 
 	var out struct {
 		Result struct {
@@ -54,6 +57,88 @@ func TestInitializeDeclaresOnlyWhatTheServerHas(t *testing.T) {
 	}
 	if out.Result.Instructions == "" {
 		t.Error("the instructions did not reach the client: the model then guesses what this is for")
+	}
+}
+
+// TestInitializeReadsTheParametersItIsGiven.
+//
+// initialize is the one message whose parameters decide how the rest of the
+// session is read, and nothing checked them: a message with none at all was
+// answered as a completed handshake. What the client then has is a session it
+// believes was negotiated, agreed with a server that never saw a version --
+// and the first message that depends on the agreement is where it surfaces,
+// which is far away from the message that was wrong.
+func TestInitializeReadsTheParametersItIsGiven(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, bad := range []struct {
+		about  string
+		params string
+	}{
+		{"no parameters at all", ``},
+		{"parameters that name no version", `,"params":{}`},
+		{"a version that is not a string", `,"params":{"protocolVersion":20241105}`},
+		{"a version that is empty", `,"params":{"protocolVersion":""}`},
+		{
+			"capabilities that are not an object",
+			`,"params":{"protocolVersion":"2024-11-05","capabilities":7}`,
+		},
+		{
+			"a client that describes itself with something that is not an object",
+			`,"params":{"protocolVersion":"2024-11-05","clientInfo":"a-client"}`,
+		},
+	} {
+		answer := helpers.Everything().Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize"`+bad.params+`}`))
+
+		var out helpers.AnswerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("%s was answered with something that is not a response: %v", bad.about, err)
+			continue
+		}
+		if out.Error == nil {
+			t.Errorf("%s was answered as a completed handshake: %s", bad.about, answer)
+			continue
+		}
+		if out.Error.Code != helpers.CodeInvalidParams {
+			t.Errorf("%s was answered with %d, want %d", bad.about, out.Error.Code, helpers.CodeInvalidParams)
+		}
+	}
+}
+
+// TestInitializeAnswersWithTheOneRevisionThisServerSpeaks.
+//
+// A client asking for a revision this server does not speak is answered with
+// the one it does, which is what lets the client decide whether to go on. The
+// answer is never the version that was asked for: a server that echoes it
+// agrees to a revision it cannot hold up, and the disagreement then shows up as
+// a member that is missing rather than as a version that was refused.
+func TestInitializeAnswersWithTheOneRevisionThisServerSpeaks(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, asked := range []string{"2024-11-05", "2025-06-18", "1999-01-01"} {
+		answer := helpers.Everything().Handle(context.Background(), who,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize",`+
+				`"params":{"protocolVersion":"`+asked+`","capabilities":{}}}`))
+
+		var out struct {
+			Result struct {
+				ProtocolVersion string `json:"protocolVersion"`
+			} `json:"result"`
+			Error *struct{} `json:"error"`
+		}
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("a client asking for %s was answered with something that is not a response: %v", asked, err)
+			continue
+		}
+		if out.Error != nil {
+			t.Errorf("a client asking for %s was refused: %s", asked, answer)
+			continue
+		}
+		if out.Result.ProtocolVersion != mcp.Version {
+			t.Errorf("a client asking for %s was answered with %q, want %q",
+				asked, out.Result.ProtocolVersion, mcp.Version)
+		}
 	}
 }
 

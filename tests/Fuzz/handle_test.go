@@ -62,6 +62,7 @@ func FuzzHandle(f *testing.F) {
 		`{"jsonrpc":"2.0","id":1,"method":"ping","METHOD":"tools/call"}`,
 		`{"jsonrpc":"2.0","id":1,"METHOD":"tools/call","params":{"NAME":"list_posts"}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize"}`,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"c","version":"1"}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call"}`,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":7}`,

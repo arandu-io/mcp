@@ -36,6 +36,14 @@ Eight requests and one notification, in the order the switch answers them:
 
 `Version` is `"2024-11-05"` and is the single place the revision is written.
 
+`initialize` answers with that revision whatever the client asked for, which is
+what lets the client decide whether to go on; echoing the requested one would
+agree to a revision this server cannot hold up
+(`TestInitializeAnswersWithTheOneRevisionThisServerSpeaks`). It refuses with
+`-32602` parameters that name no `protocolVersion`, or carry `capabilities` or
+`clientInfo` that are not objects, rather than answer a handshake that never saw
+a version (`TestInitializeReadsTheParametersItIsGiven`).
+
 `capabilities` reports only what the server actually holds: `tools` when the
 slice is non-empty, and the same for `resources` and `prompts`. A capability
 declared and not served is one a client asks about once and reports as the
@@ -127,8 +135,9 @@ it is the answer to marshalling having failed:
 -32600  it is JSON but not a request the server can carry
 -32601  the method is not implemented
 -32602  the request arrived and what it asked for cannot be used: params sent by
-        position, arguments that are not an object, a prompt nobody declared,
-        or prompt arguments that do not match its declaration
+        position, arguments that are not an object, an initialize naming no
+        protocolVersion, a prompt nobody declared, or prompt arguments that do
+        not match its declaration
 -32603  a call that was read and failed inside, or encoding the answer failed
 -32002  resources/read named a URI no resource answers to
 ```
