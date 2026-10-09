@@ -66,13 +66,13 @@ message a notification. `TestAMemberIsTheOneItIsNamed`.
 **2. The id is checked before anything else reads it.** A string or a number,
 and nothing else — not null, which base JSON-RPC allows and the `2024-11-05`
 schema's `RequestId` leaves out: a client that sends it is waiting for an
-answer it named nothing to key on. The number is read as a
-`json.Number` rather than into a float, because one larger than a float holds
-is still a number and refusing it would answer a well-formed message with a complaint about the one member that
-was fine. A bad id is refused with no id, because echoing a shape the protocol
-does not carry hands the client something its own matching has nowhere to key
-on. `TestAnIDIsAStringOrANumber`, `TestAnIDThatIsNullIsNotAMissingOne`,
-`TestAnAnswerAlwaysCarriesAnID`.
+answer it named nothing to key on. The number is read as a `json.Number`
+rather than into a float, because one larger than a float holds is still a
+number, and refusing it would answer a well-formed message with a complaint
+about the one member that was fine. A bad id is refused with no id, because
+echoing a shape the protocol does not carry hands the client something its own
+matching has nowhere to key on. `TestAnIDIsAStringOrANumber`,
+`TestAnIDThatIsNullIsNotAMissingOne`, `TestAnAnswerAlwaysCarriesAnID`.
 
 **3. A notification is answered by silence, however wrong it was.** No id means
 the sender is not listening, so the only thing left to do about its mistake is

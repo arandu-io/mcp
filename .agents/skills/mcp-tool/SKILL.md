@@ -46,7 +46,10 @@ data, and every path to data in this framework carries an authorization
 decision. `r.Subject()` is the only identity a tool has and there is no way to
 call a service without one. A tool that opens a database handle is the largest
 hole this project could ship, and it would ship quietly, because the answers
-would look right.
+would look right — and nothing in the server stops it: it runs no policy of
+its own, so the service is the boundary
+(`TestAToolThatAsksNoPolicyIsDispatchedAndReachesTheHandle` measures the
+dispatch).
 
 **2. Return the error rather than swallowing it.** `Server.Call` turns a
 non-nil error into `mcp.Error`, which sets `isError` on the wire. That boolean
@@ -220,5 +223,7 @@ tool returns it from `Handle`.
 - **A tool constructed at run time from configuration.** The slices are read as
   they are; there is no registry and nothing appends at boot.
 - **A tool in this module.** Nothing here implements `Tool`, deliberately —
-  `grep -rn 'func .*Name() string' *.go` prints nothing. A tool belongs to the
-  application whose domain it is about.
+  `grep -rn 'func .*Name() string' *.go` prints nothing, and
+  `TestThisPackageShipsNoTool` fails on a type that grows the method set of a
+  tool, an MCP resource or a prompt. A tool belongs to the application whose
+  domain it is about.
