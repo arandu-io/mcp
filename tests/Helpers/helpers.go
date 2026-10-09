@@ -14,14 +14,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
-	"strings"
-	"time"
 
-	fhttp "github.com/arandu-io/framework/http"
-	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/hesape/auth"
 
 	"github.com/arandu-io/mcp"
@@ -213,18 +207,6 @@ func Everything() *mcp.Server {
 		Resources:    []mcp.Resource{Readme{}},
 		Prompts:      []mcp.Prompt{Summarise{}},
 	}
-}
-
-// Post sends one message to the web transport, through the router that mounts
-// it, and returns what came back.
-func Post(body string) *httptest.ResponseRecorder {
-	sessions := security.NewSessionStore(bytes.Repeat([]byte("k"), 32), time.Hour, false, nil)
-	router := fhttp.NewRouter()
-	router.Action(http.MethodPost, "/mcp", mcp.Web(Everything(), sessions, "t1"))
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body)))
-	return rec
 }
 
 // ObjectMembers reads a message as a JSON object, and reports whether it was

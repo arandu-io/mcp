@@ -55,8 +55,12 @@ func (t ListPosts) Handle(ctx context.Context, r mcp.Request) (mcp.Response, err
 
 ## A server, and where it is reachable
 
+The tools live in `app/Mcp/`, the server is composed in `bootstrap/app.go`
+like every other part of the application, and it is mounted in
+`routes/web.go`, so the route table stays one table.
+
 ```go
-// routes/ai.go
+// bootstrap/app.go
 server := &mcp.Server{
 	Name:         "blog",
 	Version:      "1.0.0",
@@ -64,9 +68,11 @@ server := &mcp.Server{
 	Tools:        []mcp.Tool{ListPosts{svc}, PublishPost{svc}},
 }
 
-// Over HTTP, for a remote client. The subject comes from the session, so the
-// route stays behind CSRFProtect: the client sends X-CSRF-Token.
-r.Action("POST", "/mcp", mcp.Web(server, sessions, cfg.Auth.Tenant)).Name("mcp")
+// routes/web.go -- over HTTP, for a remote client. The guard in front of the
+// route puts the subject on the request and mcp.Web serves that subject:
+// RequireToken for a client holding an API token, as here, or RequireAuth for
+// one holding a session, on a route CSRFProtect guards.
+r.Action("POST", "/mcp", mcp.Web(server), middleware.RequireToken(tokens)).Name("mcp")
 
 // Over stdio, for an assistant on this machine. The application supplies the
 // concrete server and the subject that its own policy has established.
@@ -97,8 +103,8 @@ different on purpose:**
 
 | | |
 |---|---|
-| `mcp.Web` | from the session, exactly like an HTTP request. No session is a guest, and what a guest may do is the policy's answer |
-| `mcp.Local` | from configuration, over a pipe. There is no session on stdio, so the identity is **declared** where the server is registered and is visible in `routes/ai.go` |
+| `mcp.Web` | from the request, exactly like a controller reads it: the subject `RequireToken` or `RequireAuth` put there. A request that carries none is refused with 401, never served as a guest |
+| `mcp.Local` | from configuration, over a pipe. There is no session on stdio, so the identity is **declared** where the server is started, in code a reviewer reads |
 
 The local one takes a `Subject` rather than defaulting to one, so an application
 that lets an assistant act as an administrator has written that down somewhere a

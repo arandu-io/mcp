@@ -1,6 +1,6 @@
 ---
 name: mcp-transport
-description: Mount an mcp.Server so something can reach it — over HTTP for a remote client, or over stdio for an assistant on the same machine. Use when the request mentions "mount the MCP server", "the route for MCP", "expose the server", "stdio server", "connect a desktop assistant", "my MCP server is not reachable", "the client hangs", "nothing comes back", "the client says the server crashed", "how do I start it from the CLI", "where does the subject come from", "session", "guest subject", "MaxMessage", or "message too large". Covers mcp.Web and mcp.Local, why the subject is an argument on one and the session on the other, the 202 a notification gets, the one-megabyte bound both share, why Validate runs on only one of them, and why a single log line on stdout breaks a working server.
+description: Mount an mcp.Server so something can reach it — over HTTP for a remote client, or over stdio for an assistant on the same machine. Use when the request mentions "mount the MCP server", "the route for MCP", "expose the server", "stdio server", "connect a desktop assistant", "my MCP server is not reachable", "the client hangs", "nothing comes back", "the client says the server crashed", "how do I start it from the CLI", "where does the subject come from", "session", "bearer token", "401", "guest subject", "MaxMessage", or "message too large". Covers mcp.Web and mcp.Local, why the subject is an argument on one and what the guard in front of the route put on the request on the other, the 202 a notification gets, the one-megabyte bound both share, why Validate runs on only one of them, and why a single log line on stdout breaks a working server.
 license: MIT
 ---
 
@@ -12,15 +12,20 @@ comes from. Everything else — validation, authorization, the shape of a failur
 could not arrive with its own idea of any of it.
 
 ```
-Web    a remote client, over HTTP, identified by the session it carries.
+Web    a remote client, over HTTP, identified by the subject the guard in
+       front of the route put on the request.
 Local  a process on the same machine, over a pipe, identified by the Subject
        the application passed in.
 ```
 
 ## Over HTTP
 
+The tools live in `app/Mcp/`, the server is composed in `bootstrap/app.go`, and
+the route is in `routes/web.go` with every other route — there is no second
+route file for an assistant.
+
 ```go
-// routes/ai.go
+// bootstrap/app.go
 server := &mcp.Server{
 	Name:         "blog",
 	Version:      "1.0.0",
@@ -28,45 +33,59 @@ server := &mcp.Server{
 	Tools:        []mcp.Tool{ListPosts{svc}, PublishPost{svc}},
 }
 
-// Registered on the router that CSRFProtect already guards, like every other
-// POST. A cookie-authenticated /mcp is never exempted from it.
-r.Action("POST", "/mcp", mcp.Web(server, sessions, cfg.Auth.Tenant)).Name("mcp")
+// routes/web.go -- a client holding an API token.
+r.Action("POST", "/mcp", mcp.Web(server), middleware.RequireToken(tokens)).Name("mcp")
 ```
 
-`mcp.Web(s, sessions, tenant)` returns `func(*fhttp.Context) error`, which is
-what `Router.Action` takes. It reads the body, loads the subject with
-`sessions.Load`, and hands both to `Server.Handle`. A request whose session
-cannot be loaded becomes `security.Guest(tenant)` — not a refusal, because what
-a guest may do is the policy's answer and it is the same answer a browser would
-get.
+`mcp.Web(s)` returns `func(*hhttp.Context) error`, which is what
+`Router.Action` takes. It reads the subject with `ctx.User()` — the one the
+guard in front of the route put on the request, exactly as a controller reads
+it — then the body, and hands both to `Server.Handle`. It loads no session and
+resolves no token, so it takes neither a store nor a resolver: which guard is
+in front is the application's choice, made where the route is.
 
-The subject comes from the session and never from the body. A client that could
+| guard in front | who the tool acts as |
+| --- | --- |
+| `middleware.RequireToken(tokens)` | the subject the application's `TokenResolver` answers for the bearer token, tenant included |
+| `middleware.RequireAuth(sessions)` | the subject of the session, on a route `CSRFProtect` also guards |
+| nothing, or `LoadSubject` with no session | nobody: the request is refused with `401` |
+
+A request that reaches `Web` with no subject is refused before its body is
+read, with `WWW-Authenticate: Bearer`, and never served as a guest. The refusal
+is returned as an error, so the router answers it the way it answers every
+status an action returns: a problem document (`application/problem+json`) to a
+client that asked for JSON, which every MCP client does, and the status and its
+sentence to anything else —
+`TestARequestNobodyVouchedForIsRefusedAndNotServedAsAGuest`,
+`TestAPublicRouteWithNoSessionIsRefusedRatherThanServed`. An application that
+does have an anonymous caller declares it in middleware of its own that puts
+`auth.Guest(tenant)` on the request; the transport never invents one.
+
+The subject comes from the request and never from the body. A client that could
 name its own subject is a client that could name anybody's, and nothing in
-`protocol.go` reads a subject, a tenant or a role out of a message.
+`protocol.go` reads a subject, a tenant or a role out of a message —
+`TestASubjectInTheBodyIsNotWhoIsAsking`.
 
-Three answers it gives that are not a result:
+Four answers it gives that are not a result:
 
 | situation | answer |
 | --- | --- |
+| no subject on the request | `401`, a problem document for a JSON client |
 | the body could not be read | `400` |
 | the body is over `MaxMessage` | `413`, and the message is refused whole rather than truncated |
-| the message was a notification | `202`, at `transport.go:74`, so a client can tell "nothing to say" from "an empty answer" |
+| the message was a notification | `202`, at `transport.go:86`, so a client can tell "nothing to say" from "an empty answer" |
 
 Anything else is `200` with `Content-Type: application/json` and the encoded
 answer.
 
-**Mount it behind whatever middleware the application already uses to establish
-a session — and that includes `CSRFProtect`.** `mcp.Web` authenticates nobody;
-it reads what is there, and what is there is the session cookie, which a
-browser attaches to a request any other site can make it send. A
-cookie-authenticated `/mcp` that a tool can change data through is exactly the
-request CSRF protection exists for, so it is never exempted from
-`CSRFProtect`, not even "just for the assistant". A remote client that signs in
-with the session sends that session's token in the `X-CSRF-Token` header, as
-an HTMX request does. A client that cannot hold one does not use the cookie at
-all: it authenticates with a bearer credential, through a handler of the
-application's own that verifies the credential, resolves the subject from it
-and calls `Server.Handle(ctx, subject, body)`.
+**Behind `RequireAuth`, the route stays behind `CSRFProtect`.** The session is
+a cookie, which a browser attaches to a request any other site can make it
+send, and a cookie-authenticated `/mcp` that a tool can change data through is
+exactly the request CSRF protection exists for. It is never exempted, not even
+"just for the assistant": a client that signs in with the session sends that
+session's token in the `X-CSRF-Token` header, as an HTMX request does. A client
+that cannot hold one uses a token instead: `RequireToken` reads only the
+`Authorization` header, never a cookie, so CSRF has nothing there to reach.
 
 ## Over stdio
 
@@ -197,9 +216,11 @@ Work through it in this order; each step rules out one layer.
    died leaves stdout empty rather than corrupt.
 3. **The message is over a megabyte.** `413` on HTTP, and on the pipe a
    `-32600` naming no id, because the id was inside the part that was refused.
-4. **The session did not load.** The tool ran as `security.Guest(tenant)` and
-   the policy refused it. The answer will be an `isError` result rather than a
-   protocol error, so read the content rather than the envelope.
+4. **No subject reached the route.** Over HTTP that is a `401` before the
+   protocol is reached at all: no guard was mounted in front of `mcp.Web`, or
+   it was `LoadSubject` and the request had no session. When the subject did
+   arrive and the policy refused it, the answer is an `isError` result rather
+   than a protocol error, so read the content rather than the envelope.
 5. **The server is empty.** `initialize` declares only the capabilities the
    server actually has, so a `Server` with three empty slices declares none and
    a client that asks for a tool list gets an empty one, correctly

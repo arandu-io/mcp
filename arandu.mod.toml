@@ -1,7 +1,7 @@
 # What this server declares about itself.
 
 name = "arandu-io/mcp"
-framework = ">= 0.18"
+framework = ">= 0.51"
 profiles = ["conventional", "performance"]
 
 [permissions]

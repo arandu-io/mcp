@@ -38,11 +38,11 @@
 // Where the Subject comes from is the transport's answer, and the two are
 // deliberately different:
 //
-//	Web    from the session, exactly like an HTTP request. A remote client is
-//	       somebody signed in, or it is nobody.
+//	Web    from the request, exactly like a controller: the subject the session
+//	       guard or the bearer-token guard in front of the route put there. A
+//	       request that carries none is refused with 401.
 //	Local  from configuration, over stdio. There is no session on a pipe, so the
-//	       identity is declared when the server is registered and is visible in
-//	       routes/ai.go rather than assumed.
+//	       identity is declared where the server is started rather than assumed.
 //
 // # What is deliberately absent
 //

@@ -127,11 +127,12 @@ is a client that could name anybody's.
 Where the transport gets it from is the difference between the two:
 
 ```
-Web    from the session, exactly like every other request the application
-       answers. No session is security.Guest(tenant), and what a guest may do
-       is the policy's answer.
+Web    from the request, read with ctx.User() exactly as a controller reads it:
+       the subject RequireToken or RequireAuth put there. Web loads no session
+       and resolves no token, and a request that carries no subject is
+       refused with 401 -- never served as a guest.
 Local  from the argument, because there is no session on a pipe. The identity
-       is declared where the server is registered, so an application letting an
+       is declared where the server is started, so an application letting an
        assistant act as an administrator has written that down where a reviewer
        reads it.
 ```

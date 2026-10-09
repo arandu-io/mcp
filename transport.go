@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/hesape/auth"
+	"github.com/arandu-io/hesape/exception"
 	hhttp "github.com/arandu-io/hesape/http"
 	hlog "github.com/arandu-io/hesape/log"
 )
@@ -22,12 +22,13 @@ import (
 // It is the whole security story of this package, so it is stated once here
 // rather than implied twice below.
 //
-//	Web    a remote client, over HTTP, identified by the session it carries --
-//	       exactly like every other request this application answers. No session
-//	       is no subject, and no subject reaches no repository.
+//	Web    a remote client, over HTTP, identified by the subject the guard in
+//	       front of the route put on the request -- a session or a bearer
+//	       token, exactly like every other request this application answers.
+//	       A request that carries none is refused, and never served as anybody.
 //	Local  a process on the same machine, over a pipe. There is no session on a
-//	       pipe, so the identity is declared where the server is registered and
-//	       is visible in routes/ai.go.
+//	       pipe, so the identity is declared where the server is started and is
+//	       visible where a reviewer reads it.
 //
 // The local one is the one to be careful with, and it is careful on purpose: it
 // takes a Subject rather than defaulting to one, so an application that wants an
@@ -45,10 +46,27 @@ const MaxMessage = 1 << 20
 
 // Web mounts the server on a route.
 //
-// The subject comes from the session. A client with none is a guest, and what a
-// guest may do is the policy's answer -- the same answer a browser would get.
-func Web(s *Server, sessions *security.SessionStore, tenant string) func(*hhttp.Context) error {
+// It serves the subject the middleware in front of the route put on the
+// request, read with Context.User exactly as a controller reads it: the one a
+// session guard loaded, or the one a bearer-token guard resolved. Web loads no
+// session and resolves no token, so it takes neither a store nor a resolver.
+//
+// A request that carries no subject is refused with 401 and
+// WWW-Authenticate: Bearer before its body is read. The refusal is returned as
+// an error, so the router answers it the way it answers every status an action
+// returns: a problem document to a client that asked for JSON, the status and
+// its sentence to anything else. A client is never served as a guest it did not
+// ask to be: who an anonymous caller is, when an application has one, is
+// declared by the middleware that puts that subject on the request.
+func Web(s *Server) func(*hhttp.Context) error {
 	return func(ctx *hhttp.Context) error {
+		// From the request, never from the body. A client that could name its
+		// own subject is a client that could name anybody's.
+		subject, ok := ctx.User()
+		if !ok {
+			return unauthenticated()
+		}
+
 		body, err := io.ReadAll(io.LimitReader(ctx.Request.Body, MaxMessage+1))
 		if err != nil {
 			return ctx.Status(http.StatusBadRequest)
@@ -61,13 +79,6 @@ func Web(s *Server, sessions *security.SessionStore, tenant string) func(*hhttp.
 			return ctx.Status(http.StatusRequestEntityTooLarge)
 		}
 
-		// From the session, never from the body. A client that could name its
-		// own subject is a client that could name anybody's.
-		subject, err := sessions.Load(ctx.Ctx(), ctx.Request)
-		if err != nil {
-			subject = auth.Guest(tenant)
-		}
-
 		answer := s.Handle(ctx.Ctx(), subject, body)
 		if answer == nil {
 			// A notification. 202 rather than 200 with an empty body, so a
@@ -78,6 +89,24 @@ func Web(s *Server, sessions *security.SessionStore, tenant string) func(*hhttp.
 		ctx.Response.Header().Set("Content-Type", "application/json")
 		_, err = ctx.Response.Write(answer)
 		return err
+	}
+}
+
+// unauthenticated is the refusal of a request that reached Web carrying no
+// subject.
+//
+// It is built per request rather than held in a variable, because it carries a
+// header map and a map shared between requests is one any of them can change.
+// The challenge is Bearer because a token is the credential a client that is
+// not a browser holds; a browser with a session never gets here, since the
+// session guard turns it away first.
+func unauthenticated() error {
+	headers := http.Header{}
+	headers.Set("WWW-Authenticate", "Bearer")
+	return &exception.HTTPError{
+		Status:  http.StatusUnauthorized,
+		Message: "this server answers a request that carries a signed-in subject",
+		Headers: headers,
 	}
 }
 
