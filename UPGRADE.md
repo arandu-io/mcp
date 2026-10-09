@@ -17,7 +17,12 @@ this file exists to stop.
 
 ---
 
-## Unreleased — the HTTP transport serves the subject the guard put on the request, and a tool answers structure through a JSON Resource
+## v0.4.1
+
+Nothing in the package changes. This release requires framework v0.55.1 and
+hesape v0.52.0.
+
+## v0.4.0 — the HTTP transport serves the subject the guard put on the request, and a tool answers structure through a JSON Resource
 
 This release requires `framework` v0.51.0 and `hesape` v0.50.1, and
 `arandu.mod.toml` asks for framework `>= 0.51`. `apidiff` reports two
