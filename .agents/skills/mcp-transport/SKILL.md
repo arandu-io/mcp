@@ -73,7 +73,7 @@ Four answers it gives that are not a result:
 | no subject on the request | `401`, a problem document for a JSON client |
 | the body could not be read | `400` |
 | the body is over `MaxMessage` | `413`, and the message is refused whole rather than truncated |
-| the message was a notification | `202`, at `transport.go:86`, so a client can tell "nothing to say" from "an empty answer" |
+| the message was a notification | `202`, at `transport.go:87`, so a client can tell "nothing to say" from "an empty answer" |
 
 Anything else is `200` with `Content-Type: application/json` and the encoded
 answer.
@@ -176,8 +176,8 @@ serve however the serve ends, and a stream that simply ends returns nil —
 
 `Local` calls `Server.Validate` before it serves anything and returns the error
 instead of starting. `Web` does not call it at all — `grep -n 'Validate()' *.go`
-prints the declaration, `server.go:106`, and the one call site,
-`transport.go:94`.
+prints the declaration, `server.go:110`, and the one call site,
+`transport.go:129`.
 
 So "a tool with no description does not boot" is true over stdio and false over
 HTTP. Measured: a server carrying a tool with an empty description returns a

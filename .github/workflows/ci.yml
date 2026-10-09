@@ -47,10 +47,11 @@ jobs:
 
       # The three steps that compile the module ask with the same tags the
       # layout guard below asks with. Nothing here carries a build tag today --
-      # the same five packages and the same 86 tests are listed either way --
-      # so this changes no result. It changes what happens the day a suite goes
-      # behind a tag: without it, these steps stop compiling that suite and say
-      # nothing, and the job is green for having run less than it did before.
+      # `go list -tags integration,e2e ./...` and `go list ./...` print the same
+      # packages, and `go test -list` the same tests -- so this changes no
+      # result. It changes what happens the day a suite goes behind a tag:
+      # without it, these steps stop compiling that suite and say nothing, and
+      # the job is green for having run less than it did before.
       # The guard would still see the package, so the two would disagree about
       # what the module contains, and only the quieter one gates the merge.
       #

@@ -90,16 +90,19 @@ The shape above is the one this ecosystem's users already know, deliberately.
 One thing is different, and it is the reason this package exists rather than a
 generic Go MCP library.
 
-**A tool reaches data, and every path to data in Arandu carries an
-`auth.Grant`.** The `Subject` is on the `Request`, and a tool has no other
-way to call a service. A policy that refuses a tool refuses it for the same
-reason it refuses a controller — there is no second enforcement point, and no
-way to write one by accident.
+**A tool reaches data the way a controller does.** The `Subject` is on the
+`Request`, the tool hands it to a service, the service asks the policy, and the
+`auth.Grant` the policy issues is what the repository below requires. A policy
+that refuses a tool refuses it for the same reason it refuses a controller —
+there is no second enforcement point, and no way to write one by accident.
 
-That is not tidiness. An MCP server hands a language model the keys to an
-application. The version of this package where a tool queries the database
-directly would be the largest hole this project could ship, and it would ship
-quietly, because the answers would look right.
+The server does not check that a tool did that. It validates the arguments,
+carries the subject and marks a failure as one; it runs no policy of its own,
+because a policy decides about a typed record and a tool declares none. So the
+boundary is the service, and that is not tidiness: an MCP server hands a
+language model the keys to an application, and a tool that queries the database
+directly is the largest hole an application could ship. It would ship quietly,
+because the answers would look right.
 
 **Where the subject comes from is the transport's answer, and the two are
 different on purpose:**
@@ -117,17 +120,22 @@ reviewer reads.
 
 **A refusal is an error, not an empty result.** A model handed an empty list
 concludes there is nothing there and tells somebody. A model told it may not,
-stops. It is one boolean and it is the difference between "you have no invoices"
-and "you cannot see them".
+stops. For a tool it is one boolean, `isError`, and it is the difference between
+"you have no invoices" and "you cannot see them"; a resource that could not be
+read and a prompt that could not be rendered are JSON-RPC errors, never an empty
+document or an empty conversation.
 
 **An argument nobody declared is refused.** A model that invents a parameter and
 is not told keeps inventing it — and a tool that reads only what it declared
 acts on a call it half understood.
 
-**A tool with no description does not boot.** The description is what the model
-reads to decide whether to call it: it is the highest-leverage string in this
-package, and a tool without one is called at random. It is a mistake in a
-declaration, so it belongs at boot rather than at the first call.
+**A tool with no description is refused by `Server.Validate`.** The description
+is what the model reads to decide whether to call it: it is the
+highest-leverage string in this package, and a tool without one is called at
+random. It is a mistake in a declaration, so it belongs at boot rather than at
+the first call. Over stdio that is automatic, because `Local` runs `Validate`
+and refuses to serve; `Web` does not, so a server that is only mounted on a
+route is checked where the application boots it.
 
 ## What is deliberately absent
 
