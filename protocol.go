@@ -307,10 +307,16 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 	// it. What the client then gets back is a complaint about the parameter that
 	// went missing rather than about the parameters it did send, which points
 	// whoever is reading at the one part of the message that was fine.
+	//
+	// The two shapes are answered with two codes, because JSON-RPC 2.0 reads them
+	// differently. A params that is a number, a string or a boolean is not the
+	// structured value the member is required to be, so the message is not a
+	// request at all: -32600. An array is a well-formed request whose parameters
+	// this method cannot use, which is what -32602 says.
 	switch shapeOfParams(req.Params) {
 	case paramsNone, paramsByName:
 	case paramsByPosition:
-		return refuse(codeInvalidRequest,
+		return refuse(codeInvalidParams,
 			"params must be an object: every method here names its parameters, and there is no order to read them in")
 	default:
 		return refuse(codeInvalidRequest, "params must be an object")
@@ -351,7 +357,7 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		p := members(req.Params)
 		arguments, ok := argumentsOf(p)
 		if !ok {
-			return refuse(codeInvalidRequest, "arguments must be an object")
+			return refuse(codeInvalidParams, "arguments must be an object")
 		}
 
 		out := s.Call(ctx, subject, text(p, "name"), arguments)
@@ -424,7 +430,7 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		p := members(req.Params)
 		arguments, ok := argumentsOf(p)
 		if !ok {
-			return refuse(codeInvalidRequest, "arguments must be an object")
+			return refuse(codeInvalidParams, "arguments must be an object")
 		}
 		name := text(p, "name")
 

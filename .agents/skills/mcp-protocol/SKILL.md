@@ -1,6 +1,6 @@
 ---
 name: mcp-protocol
-description: Change protocol.go — this module's JSON-RPC 2.0 layer and the nine methods it answers. Use when adding or altering a protocol method, when a client rejects an answer or hangs up, and when the request mentions "JSON-RPC", "notification", "request id", "-32700", "-32600", "-32601", "initialize", "capabilities", "tools/list", "tools/call", "resources/read", "prompts/get", "params must be an object", "protocol version", "2024-11-05", or "the fuzz corpus". Also use when tempted to decode a message straight into a struct, to answer a notification, to refuse a member nobody named, or to trust anything a message carries about who is asking — each has already been the wrong answer here and the reason is written next to the code. Covers parse, isID, shapeOfParams, the two fuzz targets and the crasher corpus.
+description: Change protocol.go — this module's JSON-RPC 2.0 layer and the nine methods it answers. Use when adding or altering a protocol method, when a client rejects an answer or hangs up, and when the request mentions "JSON-RPC", "notification", "request id", "-32700", "-32600", "-32601", "-32602", "-32603", "-32002", "initialize", "capabilities", "tools/list", "tools/call", "resources/read", "prompts/get", "params must be an object", "protocol version", "2024-11-05", or "the fuzz corpus". Also use when tempted to decode a message straight into a struct, to answer a notification, to refuse a member nobody named, or to trust anything a message carries about who is asking — each has already been the wrong answer here and the reason is written next to the code. Covers parse, isID, shapeOfParams, the two fuzz targets and the crasher corpus.
 license: MIT
 ---
 
@@ -82,8 +82,13 @@ object belongs arrive at a method as no parameters at all. `argumentsOf` asks
 the same question one level in, and it matters more there: a tool whose
 arguments are all optional would pass its own schema and run, and the client
 would receive a result for a message this server could not read. A positional
-`params` gets its own message, because nothing here declares an order to read
-them in. `TestParamsThatAreNotAnObjectAreRefused`,
+`params` gets its own message and `-32602`, because it is a well-formed request
+whose parameters nothing here declares an order for; a `params` that is a
+number, a string or a boolean is `-32600`, because JSON-RPC 2.0 requires the
+member to be a structured value and a message carrying anything else is not a
+request. `arguments` that are not an object are `-32602`.
+`TestTheCodeSaysWhichHalfOfTheMessageIsWrong`,
+`TestParamsThatAreNotAnObjectAreRefused`,
 `TestPositionalParamsAreRefusedRatherThanIgnored`,
 `TestArgumentsThatAreNotAnObjectAreRefused`,
 `TestParamsThatAreAbsentAndParamsThatAreNullAreTheSame`,
@@ -118,8 +123,9 @@ it is the answer to marshalling having failed:
 -32700  the message is not JSON
 -32600  it is JSON but not a request the server can carry
 -32601  the method is not implemented
--32602  the request arrived and what it asked for cannot be used: a prompt nobody
-        declared, or prompt arguments that do not match its declaration
+-32602  the request arrived and what it asked for cannot be used: params sent by
+        position, arguments that are not an object, a prompt nobody declared,
+        or prompt arguments that do not match its declaration
 -32603  a call that was read and failed inside, or encoding the answer failed
 -32002  resources/read named a URI no resource answers to
 ```

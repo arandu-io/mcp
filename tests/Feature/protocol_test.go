@@ -280,8 +280,9 @@ func TestParamsThatAreNotAnObjectAreRefused(t *testing.T) {
 			continue
 		}
 		if out.Error.Code != helpers.CodeInvalidRequest {
-			t.Errorf("params of %s was answered with %d: what is wrong is the shape of the message, "+
-				"not a parameter of a method that was reached", params, out.Error.Code)
+			t.Errorf("params of %s was answered with %d: a params that is not a structured value "+
+				"makes the message not a request, which is a different mistake from parameters "+
+				"a method cannot use", params, out.Error.Code)
 		}
 		if !strings.Contains(out.Error.Message, "params") {
 			t.Errorf("params of %s was refused without naming params: %q", params, out.Error.Message)
@@ -330,9 +331,9 @@ func TestPositionalParamsAreRefusedRatherThanIgnored(t *testing.T) {
 	if out.Error == nil {
 		t.Fatalf("positional params were accepted: %s", answer)
 	}
-	if out.Error.Code != helpers.CodeInvalidRequest {
-		t.Errorf("positional params were answered with %d, and what arrived was not a request "+
-			"this protocol carries", out.Error.Code)
+	if out.Error.Code != helpers.CodeInvalidParams {
+		t.Errorf("positional params were answered with %d, and the parameters are what could not "+
+			"be read", out.Error.Code)
 	}
 	// A client that sent a well-formed JSON-RPC message is told why it is not a
 	// well-formed one here, or it sends the same thing again.
@@ -375,9 +376,9 @@ func TestArgumentsThatAreNotAnObjectAreRefused(t *testing.T) {
 		if out.Error == nil {
 			t.Errorf("arguments of %s were accepted: %s", arguments, answer)
 		} else {
-			if out.Error.Code != helpers.CodeInvalidRequest {
-				t.Errorf("arguments of %s were answered with %d: what is wrong is the shape of the "+
-					"message, not a parameter the tool declared", arguments, out.Error.Code)
+			if out.Error.Code != helpers.CodeInvalidParams {
+				t.Errorf("arguments of %s were answered with %d, and the parameters of the call are "+
+					"what could not be read", arguments, out.Error.Code)
 			}
 			if !strings.Contains(out.Error.Message, "arguments") {
 				t.Errorf("arguments of %s were refused without naming arguments: %q",
@@ -437,9 +438,9 @@ func TestAPromptWhoseArgumentsCannotBeReadIsNotRendered(t *testing.T) {
 			t.Errorf("a prompt was rendered from arguments of %s: %s", arguments, answer)
 			continue
 		}
-		if out.Error.Code != helpers.CodeInvalidRequest {
-			t.Errorf("arguments of %s were answered with %d, and what arrived was not a request "+
-				"this protocol carries", arguments, out.Error.Code)
+		if out.Error.Code != helpers.CodeInvalidParams {
+			t.Errorf("arguments of %s were answered with %d, and the parameters of the call are "+
+				"what could not be read", arguments, out.Error.Code)
 		}
 	}
 
@@ -719,6 +720,92 @@ func TestAMemberNobodyNamedIsCarriedRatherThanRefused(t *testing.T) {
 	// that is not read cannot name a tool, whatever it is spelt like.
 	if tool.Asked.ID != "" {
 		t.Error("a member nobody named reached a tool")
+	}
+}
+
+// TestTheCodeSaysWhichHalfOfTheMessageIsWrong.
+//
+// -32600 and -32602 are read by different people. The first says the envelope
+// is not a request this server can carry, and whoever reads it looks at the
+// client that built the message; the second says the request arrived and its
+// parameters could not be used, and whoever reads it looks at the call. Sending
+// -32600 for both leaves every parameter mistake looking like a broken client,
+// which is the one place nobody finds a wrong argument.
+//
+// -32603 is neither: it is a call that was read, accepted and then failed
+// inside, and retrying it is the only sensible response.
+func TestTheCodeSaysWhichHalfOfTheMessageIsWrong(t *testing.T) {
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	for _, message := range []struct {
+		about string
+		body  string
+		code  int
+	}{
+		{"an id nothing can be keyed on", `{"jsonrpc":"2.0","id":[1],"method":"ping"}`, helpers.CodeInvalidRequest},
+		{"another protocol", `{"jsonrpc":"1.0","id":1,"method":"ping"}`, helpers.CodeInvalidRequest},
+		{"no method at all", `{"jsonrpc":"2.0","id":1,"result":{}}`, helpers.CodeInvalidRequest},
+		{
+			"a notification carrying an id",
+			`{"jsonrpc":"2.0","id":1,"method":"notifications/initialized"}`,
+			helpers.CodeInvalidRequest,
+		},
+		{"a method nobody implements", `{"jsonrpc":"2.0","id":1,"method":"nope"}`, helpers.CodeMethodNotFound},
+		{"params that are not a structured value", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":7}`, helpers.CodeInvalidRequest},
+		{
+			"params sent by position",
+			`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":["list_posts"]}`,
+			helpers.CodeInvalidParams,
+		},
+		{
+			"arguments that are not an object",
+			`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_posts","arguments":7}}`,
+			helpers.CodeInvalidParams,
+		},
+		{
+			"a prompt name nobody declared",
+			`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"nothing"}}`,
+			helpers.CodeInvalidParams,
+		},
+		{
+			"a prompt argument that was not declared",
+			`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"summarise","arguments":{"x":"y"}}}`,
+			helpers.CodeInvalidParams,
+		},
+		{
+			"a prompt that refused to render",
+			`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"unrenderable"}}`,
+			helpers.CodeInternal,
+		},
+	} {
+		answer := helpers.Conversations().Handle(context.Background(), who, []byte(message.body))
+
+		var out helpers.AnswerShape
+		if err := json.Unmarshal(answer, &out); err != nil {
+			t.Errorf("%s was answered with something that is not a response: %v", message.about, err)
+			continue
+		}
+		if out.Error == nil {
+			t.Errorf("%s was answered with a result: %s", message.about, answer)
+			continue
+		}
+		if out.Error.Code != message.code {
+			t.Errorf("%s was answered with %d, want %d", message.about, out.Error.Code, message.code)
+		}
+	}
+
+	// Every one of them sent without an id is answered by nothing at all: a
+	// code is still an answer, and the sender said it is not listening.
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","method":"tools/call","params":7}`,
+		`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_posts","arguments":7}}`,
+		`{"jsonrpc":"2.0","method":"prompts/get","params":{"name":"nothing"}}`,
+		`{"jsonrpc":"2.0","method":"prompts/get","params":{"name":"summarise","arguments":{"x":"y"}}}`,
+		`{"jsonrpc":"2.0","method":"nope"}`,
+	} {
+		if got := helpers.Conversations().Handle(context.Background(), who, []byte(body)); got != nil {
+			t.Errorf("%s was answered with %s", body, got)
+		}
 	}
 }
 

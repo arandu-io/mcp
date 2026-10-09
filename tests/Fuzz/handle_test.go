@@ -69,6 +69,10 @@ func FuzzHandle(f *testing.F) {
 		`{"jsonrpc":"2.0","method":"resources/read","params":{"uri":"blog://nothing"}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"prompts/list"}`,
 		`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"summarise","arguments":{"slug":"x"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"summarise"}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"summarise","arguments":{"x":"y"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"nothing"}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_posts","arguments":{"limit":1.9}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"nope"}`,
 		"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n",
 	}
