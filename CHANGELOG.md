@@ -1,5 +1,16 @@
 # Release Notes
 
+## [v0.4.0](https://github.com/arandu-io/mcp/compare/v0.3.2...v0.4.0) - 2026-10-09
+
+## What's Changed
+* Bump the github-actions group across 1 directory with 2 updates by @dependabot[bot] in https://github.com/arandu-io/mcp/pull/4
+* Bump github.com/arandu-io/framework from 0.47.1 to 0.48.0 in the gomod group by @dependabot[bot] in https://github.com/arandu-io/mcp/pull/6
+
+## New Contributors
+* @dependabot[bot] made their first contribution in https://github.com/arandu-io/mcp/pull/4
+
+**Full Changelog**: https://github.com/arandu-io/mcp/compare/v0.3.2...v0.4.0
+
 ## [v0.3.2](https://github.com/arandu-io/mcp/compare/v0.3.1...v0.3.2) - 2026-09-17
 
 **Full Changelog**: https://github.com/arandu-io/mcp/compare/v0.3.1...v0.3.2
