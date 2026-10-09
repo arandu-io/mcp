@@ -161,24 +161,37 @@ bash tests/test-layout-guard.sh
 Two, and their names are what `go test -fuzz` takes:
 
 ```sh
-grep -rhoE 'func Fuzz[A-Za-z0-9_]*' tests/Fuzz/*_test.go | sort -u   # FuzzHandle, FuzzLocal
+grep -rhoE 'func Fuzz[A-Za-z0-9_]*' tests/Fuzz/*_test.go | sort -u   # func FuzzHandle, func FuzzLocal
 go test ./tests/Fuzz -run='^$' -fuzz='^FuzzHandle$' -fuzztime=30s
 ```
 
 `FuzzHandle` drives one message through `Server.Handle`; `FuzzLocal` drives a
 stream through the stdio reader. Their seed corpora and the one committed
 crasher run as ordinary subtests on every `go test`, so a regression is caught
-on every push without anybody asking for it. Measured on this tree: `go test -v`
-reports 88 `--- PASS` lines — 37 top-level and 51 subtests, and every one of the
-51 is a fuzz input. `FuzzHandle` carries 37 seeds and the crasher; `FuzzLocal`
-carries 13 seeds.
+on every push without anybody asking for it. `FuzzHandle` carries 37 seeds and
+the crasher; `FuzzLocal` carries 13 seeds. The suite grows, so count it rather
+than trusting a number written here:
+
+```sh
+export GOWORK=off
+go test -list '.*' ./... | grep -cE '^(Test|Fuzz)'   # top-level: every Test and both Fuzz targets
+go test -v ./... | grep -cE '^ +--- PASS'            # subtests
+go test -v ./tests/Fuzz | grep -E '^ +--- PASS' \
+  | sed -E 's|^ +--- PASS: ([^/]+)/.*|\1|' | sort | uniq -c   # 38 FuzzHandle, 13 FuzzLocal
+```
+
+Every subtest in the suite is a fuzz input today, so the second command prints
+the sum of what the third lists. When it prints more, a test has grown subtests
+of its own.
 
 A new crasher belongs under `tests/Fuzz/testdata/fuzz/<target>/`, committed by a
 person who has read it. What a long run buys over the corpus is the paths a
 minute does not reach.
 
-**Expect `FuzzHandle` to fail inside a minute, and read the failure before
-believing it.** A 30-second run on a clean tree found this input:
+**`FuzzHandle` can fail inside a minute; read the failure before believing
+it.** How soon depends on how many workers the run has: a 30-second run on a
+clean tree found the input below, and a 60-second run with `-parallel=2` found
+nothing in 2.8 million executions. The input it finds:
 
 ```
 {"id":2000000000000000000000000000000000000000000000000000000000000000…}
