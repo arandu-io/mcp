@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -237,18 +238,44 @@ func ObjectMembers(body []byte) (map[string]json.RawMessage, bool) {
 }
 
 // SameJSON reports whether two encodings carry the same value.
+//
+// A number is compared as it was written rather than as a float64, through
+// Decode, so two identical ids larger than a float64 holds are the same id.
 func SameJSON(a, b []byte) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	var x, y any
-	if err := json.Unmarshal(a, &x); err != nil {
+	x, err := Decode(a)
+	if err != nil {
 		return false
 	}
-	if err := json.Unmarshal(b, &y); err != nil {
+	y, err := Decode(b)
+	if err != nil {
 		return false
 	}
 	return reflect.DeepEqual(x, y)
+}
+
+// Decode reads one JSON value, keeping every number as the json.Number it was
+// written as.
+//
+// Decoding into an any turns a number into a float64, and a number larger than
+// a float64 holds -- which the protocol allows as an id, and which the server
+// echoes byte for byte -- then fails to decode at all. A check written that way
+// reports the one member the server got right. Anything after the value is an
+// error, as it is for json.Unmarshal.
+func Decode(data []byte) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("helpers: data after the JSON value")
+	}
+	return v, nil
 }
 
 // IsNonEmptyString reports whether a raw member is a string with something in

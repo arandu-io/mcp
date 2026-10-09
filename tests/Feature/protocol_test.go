@@ -122,19 +122,25 @@ func TestAnAnswerAlwaysCarriesAnID(t *testing.T) {
 	}
 }
 
-// TestAnIDIsAStringANumberOrNull.
+// TestAnIDIsAStringOrANumber.
 //
-// The protocol carries those three and nothing else there, and the id is the
-// member a client matches an answer to the call it is waiting on by. An id it
-// cannot key on is an answer it never delivers, and the call it belongs to waits
-// until something gives up -- so the message is refused while there is still an
-// answer to refuse it with, rather than acted on and answered unmatchably.
-func TestAnIDIsAStringANumberOrNull(t *testing.T) {
+// The revision this server speaks carries those two there and nothing else --
+// not null, which base JSON-RPC allows and this revision's RequestId leaves
+// out. The id is the member a client matches an answer to the call it is
+// waiting on by: one it cannot key on is an answer it never delivers, and the
+// call it belongs to waits until something gives up. So the message is refused
+// while there is still an answer to refuse it with, rather than acted on and
+// answered unmatchably.
+//
+// Null is the one worth naming. A client that sends it is not sending a
+// notification -- it is waiting -- and answering it as though it were a request
+// hands back an answer keyed on nothing.
+func TestAnIDIsAStringOrANumber(t *testing.T) {
 	tool := &helpers.Posts{}
 	s := helpers.Blog(tool)
 	who := security.Subject{ID: "u1", Tenant: "t1"}
 
-	for _, id := range []string{`{"a":1}`, `{}`, `[1,2]`, `[]`, `true`, `false`} {
+	for _, id := range []string{`{"a":1}`, `{}`, `[1,2]`, `[]`, `true`, `false`, `null`, ` null `} {
 		body := `{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}`
 
 		answer := s.Handle(context.Background(), who, []byte(body))
@@ -172,10 +178,14 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 		t.Error("a message with an id nobody can match reached a tool")
 	}
 
-	// The three the protocol does carry still arrive, and come back as they were
-	// sent. The large one is why the check reads a number as a number: it does
-	// not fit a float, and a check that used one would refuse it.
-	for _, id := range []string{`1`, `-3`, `0`, `1.5`, `1e999`, `"abc"`, `""`, `null`} {
+	// The two the protocol does carry still arrive, and come back as they were
+	// sent. The long one is why a number is read as a json.Number and not into a
+	// float: it does not fit one, and it is echoed and never counted with, so
+	// refusing it would answer a well-formed message with a complaint about the
+	// one member that was fine.
+	for _, id := range []string{
+		`1`, `-3`, `0`, `1.5`, `-2.5`, `1e999`, `2` + strings.Repeat(`0`, 308), `"abc"`, `""`, `"null"`,
+	} {
 		body := `{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}`
 
 		answer := s.Handle(context.Background(), who, []byte(body))
@@ -195,6 +205,37 @@ func TestAnIDIsAStringANumberOrNull(t *testing.T) {
 		if string(out.ID) != id {
 			t.Errorf("an id of %s came back as %s", id, out.ID)
 		}
+	}
+}
+
+// TestAnIDThatIsNullIsNotAMissingOne.
+//
+// The member being absent and the member being null are two different messages,
+// and this is the one place in the protocol where that difference decides
+// everything: absent means the sender is not listening, and null means it is
+// listening and named the call nothing. Reading them the same way either
+// answers a notification, which makes a strict client hang up, or leaves a
+// request unanswered forever.
+func TestAnIDThatIsNullIsNotAMissingOne(t *testing.T) {
+	s := helpers.Blog(&helpers.Posts{})
+	who := security.Subject{ID: "u1", Tenant: "t1"}
+
+	answer := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","id":null,"method":"ping"}`))
+	if answer == nil {
+		t.Fatal("a message carrying a null id was read as a notification and answered by silence")
+	}
+	var out helpers.AnswerShape
+	if err := json.Unmarshal(answer, &out); err != nil {
+		t.Fatalf("a null id was answered with something that is not a response: %v", err)
+	}
+	if out.Error == nil {
+		t.Fatalf("a null id was answered with a result a client cannot key on: %s", answer)
+	}
+
+	// And leaving the member out is still a notification, which is answered by
+	// nothing at all.
+	if got := s.Handle(context.Background(), who, []byte(`{"jsonrpc":"2.0","method":"ping"}`)); got != nil {
+		t.Errorf("a message with no id member was answered with %s", got)
 	}
 }
 

@@ -115,27 +115,43 @@ func text(fields map[string]json.RawMessage, name string) string {
 	return s
 }
 
-// isID reports whether a member can serve as a request id, which the protocol
-// allows to be a string, a number or null and nothing else.
+// isID reports whether a member can serve as a request id, which this revision
+// of the protocol allows to be a string or a number and nothing else.
+//
+// Null is refused, and it is the one worth stating: base JSON-RPC allows it and
+// this revision's RequestId does not. A client that sends null is not sending a
+// notification -- it is waiting for an answer, and it named the call nothing to
+// key that answer on. Answering it as though it were an ordinary request hands
+// back something that matches no call, and reading it as a notification leaves
+// the client waiting until it gives up.
 //
 // An absent member is allowed and is not a bad id: a message without one is a
 // notification, which is a different thing from a request that named an id this
 // server cannot carry.
 //
-// The number is read as a json.Number rather than into a float, because one
-// larger than a float holds is still a number. Reading it into a float fails,
-// and refusing it would answer a well-formed message with a complaint about the
-// one member that was fine.
+// The shape decides before anything decodes it, and that order is not a style:
+// decoding null into a string or a json.Number succeeds and leaves it empty, so
+// a check that asked "does this read as one" would answer yes about the one
+// value being refused.
+//
+// A number is read as a json.Number rather than into a float, because one
+// larger than a float holds is still a number. It is echoed back byte for byte
+// and never counted with, so refusing it would answer a well-formed message
+// with a complaint about the one member that was fine.
 func isID(raw json.RawMessage) bool {
-	if len(raw) == 0 || string(raw) == "null" {
+	value := bytes.TrimSpace(raw)
+	switch {
+	case len(value) == 0:
 		return true
+	case string(value) == "null":
+		return false
+	case value[0] == '"':
+		var s string
+		return json.Unmarshal(value, &s) == nil
+	default:
+		var n json.Number
+		return json.Unmarshal(value, &n) == nil
 	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return true
-	}
-	var n json.Number
-	return json.Unmarshal(raw, &n) == nil
 }
 
 // isNotification reports whether a method name belongs to a message the sender
@@ -258,7 +274,7 @@ func (s *Server) Handle(ctx context.Context, subject security.Subject, body []by
 		// shape the protocol does not carry hands it back something its own
 		// matching has nowhere to key on. The answer names no id, which is what
 		// the protocol asks for when the request's could not be read.
-		return failure(nil, codeInvalidRequest, "the id must be a string, a number or null")
+		return failure(nil, codeInvalidRequest, "the id must be a string or a number")
 	}
 	if req.JSONRPC != "2.0" {
 		return failure(req.ID, codeInvalidRequest, "this server speaks JSON-RPC 2.0")

@@ -1,9 +1,11 @@
 package fuzz
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/arandu-io/framework/security"
@@ -43,6 +45,15 @@ func FuzzHandle(f *testing.F) {
 		`{"jsonrpc":"2.0","method":"ping"}`,
 		`{"jsonrpc":"2.0","id":1,"method":"ping"}`,
 		`{"jsonrpc":"2.0","id":null,"method":"ping"}`,
+		`{"jsonrpc":"2.0","id":1.5,"method":"ping"}`,
+		`{"jsonrpc":"2.0","id":1e2,"method":"ping"}`,
+		`{"jsonrpc":"2.0","id":-7,"method":"ping"}`,
+		`{"jsonrpc":"2.0","id":"","method":"ping"}`,
+		`{"jsonrpc":"2.0","id":20000000000000000000000000000000000000000,"method":"ping"}`,
+		// Larger than a float64 holds, with no jsonrpc member: the input a
+		// 30-second run found, which the harness used to report as an id the
+		// request did not send about an answer that echoed it exactly.
+		`{"id":2` + strings.Repeat(`0`, 308) + `}`,
 		`{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}`,
 		`{"jsonrpc":"2.0","id":1,"method":5}`,
 		`{"jsonrpc":"2.0","id":1,"result":{}}`,
@@ -128,22 +139,32 @@ func FuzzHandle(f *testing.F) {
 			}
 		}
 
-		if hasID && !helpers.SameJSON(out.ID, id) && !helpers.SameJSON(out.ID, []byte("null")) {
+		// Byte for byte first, and only then by value. An id larger than a
+		// float64 holds is one this server carries and the comparison below
+		// cannot read: decoding it into an any fails, so SameJSON answers false
+		// about two identical ids and the failure names the one thing that was
+		// right. What the server promises here is an echo, and an echo is
+		// exactly what bytes compare.
+		echoed := bytes.Equal(bytes.TrimSpace(out.ID), bytes.TrimSpace(id))
+		if hasID && !echoed && !helpers.SameJSON(out.ID, id) && !helpers.SameJSON(out.ID, []byte("null")) {
 			t.Fatalf("the answer carries an id the request did not send: %s for %q", answer, body)
 		}
 
 		// The answer is written once and read by somebody else, so what it means
-		// has to survive being encoded and decoded again.
-		var once any
-		if err := json.Unmarshal(answer, &once); err != nil {
+		// has to survive being encoded and decoded again. It is decoded keeping
+		// numbers as they were written, for the reason the id check above compares
+		// bytes: an id larger than a float64 holds is carried, and decoding it into
+		// a float would report the answer as broken for carrying it.
+		once, err := helpers.Decode(answer)
+		if err != nil {
 			t.Fatalf("the answer does not decode: %v", err)
 		}
 		again, err := json.Marshal(once)
 		if err != nil {
 			t.Fatalf("the answer does not encode again: %v", err)
 		}
-		var twice any
-		if err := json.Unmarshal(again, &twice); err != nil {
+		twice, err := helpers.Decode(again)
+		if err != nil {
 			t.Fatalf("the re-encoded answer does not decode: %v", err)
 		}
 		if !reflect.DeepEqual(once, twice) {

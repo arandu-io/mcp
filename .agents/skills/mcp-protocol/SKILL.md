@@ -55,13 +55,16 @@ thing in front of it records one call and the thing behind it runs another.
 absent from one that is null, and that difference is the whole of what makes a
 message a notification. `TestAMemberIsTheOneItIsNamed`.
 
-**2. The id is checked before anything else reads it.** A string, a number or
-null, and nothing else. The number is read as a `json.Number` rather than into a
-float, because one larger than a float holds is still a number and refusing it
-would answer a well-formed message with a complaint about the one member that
+**2. The id is checked before anything else reads it.** A string or a number,
+and nothing else — not null, which base JSON-RPC allows and the `2024-11-05`
+schema's `RequestId` leaves out: a client that sends it is waiting for an
+answer it named nothing to key on. The number is read as a
+`json.Number` rather than into a float, because one larger than a float holds
+is still a number and refusing it would answer a well-formed message with a complaint about the one member that
 was fine. A bad id is refused with no id, because echoing a shape the protocol
 does not carry hands the client something its own matching has nowhere to key
-on. `TestAnIDIsAStringANumberOrNull`, `TestAnAnswerAlwaysCarriesAnID`.
+on. `TestAnIDIsAStringOrANumber`, `TestAnIDThatIsNullIsNotAMissingOne`,
+`TestAnAnswerAlwaysCarriesAnID`.
 
 **3. A notification is answered by silence, however wrong it was.** No id means
 the sender is not listening, so the only thing left to do about its mistake is
@@ -211,55 +214,40 @@ go test ./tests/Fuzz -run='^$' -fuzz='^FuzzHandle$' -fuzztime=30s
 `FuzzHandle` drives one message through `Server.Handle`; `FuzzLocal` drives a
 stream through the stdio reader. Their seed corpora and the one committed
 crasher run as ordinary subtests on every `go test`, so a regression is caught
-on every push without anybody asking for it. `FuzzHandle` carries 37 seeds and
-the crasher; `FuzzLocal` carries 13 seeds. The suite grows, so count it rather
-than trusting a number written here:
+on every push without anybody asking for it. The suite grows, so count it
+rather than trusting a number written here:
 
 ```sh
 export GOWORK=off
 go test -list '.*' ./... | grep -cE '^(Test|Fuzz)'   # top-level: every Test and both Fuzz targets
 go test -v ./... | grep -cE '^ +--- PASS'            # subtests
 go test -v ./tests/Fuzz | grep -E '^ +--- PASS' \
-  | sed -E 's|^ +--- PASS: ([^/]+)/.*|\1|' | sort | uniq -c   # 38 FuzzHandle, 13 FuzzLocal
+  | sed -E 's|^ +--- PASS: ([^/]+)/.*|\1|' | sort | uniq -c   # inputs per target
 ```
 
-Every subtest in the suite is a fuzz input today, so the second command prints
-the sum of what the third lists. When it prints more, a test has grown subtests
-of its own.
+The second command prints more than the third lists once a test has subtests
+of its own, and `TestOnlyWhatASentenceQuotesBesideACitationIsChecked` is not
+one: it loops without `t.Run`.
 
 A new crasher belongs under `tests/Fuzz/testdata/fuzz/<target>/`, committed by a
 person who has read it. What a long run buys over the corpus is the paths a
 minute does not reach.
 
-**`FuzzHandle` can fail inside a minute; read the failure before believing
-it.** How soon depends on how many workers the run has: a 30-second run on a
-clean tree found the input below, and a 60-second run with `-parallel=2` found
-nothing in 2.8 million executions. The input it finds:
+**An id larger than a float64 holds is carried, and the harness follows it.**
+A 30-second run once found this input:
 
 ```
 {"id":2000000000000000000000000000000000000000000000000000000000000000…}
 ```
 
 309 digits, and no `jsonrpc` member. The server answers `-32600` and echoes the
-id byte for byte, which is correct: `isID` accepts a number that large on
-purpose, reading it as a `json.Number` because one larger than a float holds is
-still a number.
-
-The harness cannot follow it there. `helpers.SameJSON` and the round-trip check
-below it both `json.Unmarshal` into `any`, which decodes a number as a `float64`
-and refuses this one — measured:
-`json.Unmarshal([]byte("2"+strings.Repeat("0",308)), &x)` into `any` returns
-`cannot unmarshal number … into Go value of type float64`, and the same bytes
-into a `json.Number` return `<nil>`. So `SameJSON` answers false about two
-identical ids and the target reports "the answer carries an id the request did
-not send" about an answer that carried exactly the one it was sent.
-
-The gap is in the assertion, not in `Handle`. A crasher written out for this
-reason is a false positive: do not commit it — it would fail `go test` for
-everyone afterwards, since the corpus runs as ordinary subtests. Fixing the
-harness means comparing the two ids as bytes, or decoding with a
-`json.Decoder` that has `UseNumber` set, so that what the test can carry is what
-`isID` can carry.
+id byte for byte, which is correct: `isID` reads a number as a `json.Number`
+because one larger than a float holds is still a number. The harness used to
+decode into `any`, which refuses that number, and it reported "the answer
+carries an id the request did not send" about an answer that carried exactly
+the one it was sent. It now compares the echoed id as bytes and decodes through
+`helpers.Decode`, which keeps every number as the `json.Number` it was written
+as, and the input is a seed.
 
 ## What must not enter this file
 
