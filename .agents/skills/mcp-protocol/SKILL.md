@@ -104,9 +104,10 @@ reads an identity out of JSON:
 grep -n 'subject' protocol.go
 ```
 
-Four lines, and each of them passes the parameter along. If a change here ever
-needs to read who is asking, the answer is that the transport already knows and
-this file must not learn.
+Four lines: the parameter itself, and the three places it is passed along —
+`Server.Call`, `Server.Read`, and the `Request` a prompt's `Render` receives.
+If a change here ever needs to read who is asking, the answer is that the
+transport already knows and this file must not learn.
 
 ## The error codes, and which failures are not codes
 
@@ -126,6 +127,13 @@ not. A refused authorization, a tool that does not exist, arguments that do not
 match a schema — all of those come back as a result with `isError: true` and a
 `200`.
 
+That holds for `tools/call`, which is the one method whose result has an
+`isError` member. The other two that reach application code carry the failure
+as words: a `Read` that fails is answered as one content part whose text is the
+error, under the type the resource declares, and a `Render` that fails as no
+messages with the error as the description. Nothing in either envelope marks it
+as a failure.
+
 The two nearby wrong messages each have a test: "the message is not JSON" is
 reserved for bytes that really are not
 (`TestOnlySomethingThatIsNotJSONIsCalledThat`), and a message carrying no method
@@ -141,9 +149,13 @@ expected (`TestAMessageWithNoMethodSaysSo`).
    hand in a branch.
 3. If it takes parameters, read them with `members(req.Params)` and `text(...)`.
    The shape was already checked before the switch.
-4. If it reaches application data, it goes through `Server.Call` or
-   `Server.Read`, both of which take the subject. Do not reach a `Tool` or a
-   `Resource` from this file directly.
+4. If it reaches application data, it does so as `subject`: through
+   `Server.Call` or `Server.Read`, both of which take it, or — for a prompt,
+   which has no `Server` method — inside the `Request` that `Render` receives,
+   as `prompts/get` does. Never call a `Tool`'s `Handle` or a `Resource`'s
+   `Read` from this file. Reading what they declare — a name, a URI, a type —
+   is what the list branches and `resources/read` do, and it is all this file
+   reads of them.
 5. If it is a capability a client negotiates, add it to `capabilities` at the
    same time, and only under the condition that the server actually has it.
 6. Write the test as a sentence about the behaviour, under `tests/Feature/`.

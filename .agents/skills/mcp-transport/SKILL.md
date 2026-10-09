@@ -95,8 +95,21 @@ stream of newlines into as much output as the other end cares to ask for
 
 **Nothing may be written to stdout except an answer.** A log line there is a
 parse error at the client, and it is the most common way a working stdio server
-appears broken. `mcp.Start` logs through the framework's logger, which writes to
-stderr. If you add output of your own, it goes to stderr too.
+appears broken.
+
+`mcp.Start` logs one line before serving, "mcp: serving over stdio", through
+`observability.Log(ctx)` at `transport.go:170`: the logger the context carries,
+or `slog.Default()` when it carries none. `slog.Default()` writes to stderr. The
+framework's root logger does not: `observability.NewLogger`, which is what
+`Application.Logger()` returns, writes to stdout. So a context carrying that
+logger, or a process that installed it with `slog.SetDefault`, puts the line on
+the pipe ahead of the first answer. Measured: with `context.Background()` the
+line went to stderr as text; with
+`observability.WithLogger(ctx, observability.NewLogger("production", slog.LevelInfo))`
+it went to stdout as a JSON object, which the client reads as a message.
+
+Hand `Start` a context that carries no logger, or one built on stderr. If you
+add output of your own, it goes to stderr too.
 
 ## The bound both share
 
@@ -126,7 +139,8 @@ Read them before changing any of it:
 
 `Local` calls `Server.Validate` before it serves anything and returns the error
 instead of starting. `Web` does not call it at all — `grep -n 'Validate()' *.go`
-shows the one call site, `transport.go:94`.
+prints the declaration, `server.go:106`, and the one call site,
+`transport.go:94`.
 
 So "a tool with no description does not boot" is true over stdio and false over
 HTTP. Measured: a server carrying a tool with an empty description returns a
@@ -135,9 +149,10 @@ and answers `isError=false`.
 
 If the server is only ever mounted on a route, call `Validate` yourself where
 the application boots and fail there. Everything it reports is a mistake in a
-declaration — a tool with no name, two tools with one name, a tool with no
-description, two resources at one URI — and a server that starts and answers
-nonsense is worse than one that refuses to start.
+declaration — a server with no name, a tool with no name, two tools with one
+name, a tool with no description, a resource with no URI, two resources at one
+URI — and a server that starts and answers nonsense is worse than one that
+refuses to start.
 
 ## No CLI command starts or describes a server
 
@@ -160,8 +175,11 @@ Work through it in this order; each step rules out one layer.
 1. **A notification gets no answer, and that is correct.** A message with no
    `id` is answered by silence over stdio and by `202` over HTTP. If the client
    is waiting, the client sent no id.
-2. **Something else is on stdout.** A print, a panic trace, a dependency's
-   logger. One line is enough to make every answer unparseable.
+2. **Something else is on stdout.** A print, a dependency's logger, or
+   `mcp.Start`'s own line when its context carries the framework's root logger
+   (see above). One line is enough to make every answer unparseable. A panic
+   trace is not one of these: the runtime writes it to stderr, so a server that
+   died leaves stdout empty rather than corrupt.
 3. **The message is over a megabyte.** `413` on HTTP, and on the pipe a
    `-32600` naming no id, because the id was inside the part that was refused.
 4. **The session did not load.** The tool ran as `security.Guest(tenant)` and

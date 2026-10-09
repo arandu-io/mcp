@@ -56,7 +56,9 @@ a model told it may not, stops.
 whether to call this rather than something else, so a model that called the
 wrong tool was told the wrong thing here. Say what it lists, in what order, and
 what it will not show. `Server.Validate` refuses a tool without one —
-`TestAServerWithoutDescriptionsIsRefusedAtBoot`.
+`TestAServerWithoutDescriptionsIsRefusedAtBoot` — but only on a server that
+runs it: `Local` does before serving, and `Web` never calls it. The
+`mcp-transport` skill has the measurement and what to do about it.
 
 **4. Declare every argument.** One the schema does not name is refused before
 `Handle` runs, and the refusal names it: a model that invents a parameter and is
@@ -78,7 +80,7 @@ a miss answers with the sorted list of what does exist, because a model retrying
 the same wrong name is a model that was told nothing useful —
 `TestAnUnknownToolListsTheOnesThatExist`.
 
-Two tools with one name is refused at boot rather than resolved by order —
+Two tools with one name is refused by `Validate` rather than resolved by order —
 `TestTwoToolsWithOneNameAreRefused`.
 
 ## The schema, and the two edges it has
@@ -138,7 +140,7 @@ answers rather than panics on a value that cannot be encoded
 A `Resource` is something the client reads by URI: `URI`, `Name`,
 `Description`, `MimeType` and `Read(ctx, subject)`. It takes the subject
 directly, so the same rule applies — it goes to the service, not to a query.
-Two resources at one URI are refused at boot.
+Two resources at one URI are refused by `Validate`.
 
 A resource is the same type listed and read. `resources/read` looks the
 resource up by URI and answers `"mimeType": mime`, taken through the same
