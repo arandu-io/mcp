@@ -17,6 +17,11 @@ this file exists to stop.
 
 ---
 
+## v0.4.2
+
+Nothing in the package changes. This release requires framework v0.56.0 and
+hesape v0.54.0.
+
 ## v0.4.1
 
 Nothing in the package changes. This release requires framework v0.55.1 and
