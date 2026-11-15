@@ -208,8 +208,11 @@ the CLI never had either. So:
 Do not put either command in an example, a README or a comment —
 `TestNoDocumentPromisesACommandThatStartsOrDescribesAServer` reads every
 document and Go file here for the namespace. `aru mcp` on its own is the
-server the CLI is to give a developer's own assistant, for the CLI's tools; it
-is not a way to start yours, and aru v0.61.0 does not ship it.
+server the CLI gives a developer's own assistant, for the CLI's tools — the
+doctor, the project map, the generators and the end-to-end browser tools; it is
+not a way to start yours. `aru make:mcp-tool`, `make:mcp-resource` and
+`make:mcp-prompt` generate pieces of an application's server and do not start it
+either.
 
 ## When nothing comes back
 

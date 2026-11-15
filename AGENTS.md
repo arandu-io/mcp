@@ -152,10 +152,13 @@ every document here. So stdio is started by the application calling
 `mcp.Start`, and `mcp.Describe` writes to whatever `io.Writer` it is handed.
 
 `aru mcp` on its own is a different command, and the check lets it through on
-purpose: it is the server the CLI is to give a developer's own assistant,
-serving the CLI's tools — the doctor, the project map — through this library.
-It does not start an application's server, and it is not in a released CLI
-yet: `aru help` from aru v0.61.0 names no mcp command at all.
+purpose: it is the server the CLI gives a developer's own assistant, over stdio
+and for the project the current directory is in, serving the CLI's tools — the
+doctor, the project map, the implementation contract, the generators and the
+browser tools of the end-to-end suite — through this library. It does not start
+an application's server. `aru make:mcp-tool`, `make:mcp-resource` and
+`make:mcp-prompt` generate the pieces of an application's own server, and none
+of them starts it either.
 
 **`Server.Validate` runs on one of the two transports.** `Local` calls it and
 refuses to serve when it fails; `Web` does not call it at all. So "a tool with

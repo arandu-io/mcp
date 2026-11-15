@@ -17,6 +17,16 @@ this file exists to stop.
 
 ---
 
+## v0.5.0
+
+Nothing in the package changes. This release requires Go 1.26.10, framework
+v0.66.0 and hesape v0.85.0.
+
+## v0.4.3
+
+Nothing in the package changes. This release requires framework v0.64.0 and
+hesape v0.84.1.
+
 ## v0.4.2
 
 Nothing in the package changes. This release requires framework v0.56.0 and
