@@ -83,7 +83,8 @@ a cookie, which a browser attaches to a request any other site can make it
 send, and a cookie-authenticated `/mcp` that a tool can change data through is
 exactly the request CSRF protection exists for. It is never exempted, not even
 "just for the assistant": a client that signs in with the session sends that
-session's token in the `X-CSRF-Token` header, as an HTMX request does. A client
+session's token in the `X-CSRF-Token` header, as a YPY request does through the `ypy-csrf`
+extension. A client
 that cannot hold one uses a token instead: `RequireToken` reads only the
 `Authorization` header, never a cookie, so CSRF has nothing there to reach.
 
